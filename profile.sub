@@ -1,0 +1,36 @@
+Universe                = vanilla
+Executable              = /bin/bash
+Arguments               = profile.sh
+Environment             = "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:False"
+get_env                 = true
+    
+Requirements           = Nandor
+#Requirements            = (Target.GPUSlot)
+Request_GPUs            = 8
+Initialdir              = /scratch/cluster/dylantw/Risto/init
+Output                  = profile_logging_test_02.out
+Error                   = profile_logging_test_02.err
+Log                     = profile_logging_test_02.log
+
+stream_output           = True
+stream_error            = True
+    
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files    = app.py, profile.sh, emotion_rate.py, bnn.py, config-feedforward, evolve_neat.py
+transfer_output_files   = output_logging_test_02.prof, survival_loss_ethical_progress_logging_test_02.png, best_architecture_*.txt, population_tradeoffs_iteration_*.json, experiment_results.json
+
+  
+# UTCS-specific attributes
++Group                  = "UNDER"
++Project                = "AI_ROBOTICS"
++ProjectDescription     = "LLM Adventure Game Sandbox"
++GPUJob = true
+  
+request_memory = 60000
+request_cpus   = 1
+
+# Increase open file limit for Condor
++MaxOpenFiles = 65536
+  
+Queue

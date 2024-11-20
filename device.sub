@@ -1,0 +1,33 @@
+Universe                = vanilla
+Executable              = /bin/bash
+Arguments               = device.sh
+Environment             = "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True"
+get_env                 = true
+    
+#Requirements            = (Nandor)
+Requirements           = (Target.GPUSlot)
+Request_GPUs            = 8
+Initialdir              = /scratch/cluster/dylantw/Risto/init
+Output                  = device.out
+Error                   = device.err
+Log                     = device.log
+
+stream_output           = True
+stream_error            = True
+    
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files    = device.py, device.sh
+#transfer_output_files   = output_fullstream_4danger.prof, survival_loss_ethical_progress_4danger.png
+
+  
+# UTCS-specific attributes
++Group                  = "UNDER"
++Project                = "AI_ROBOTICS"
++ProjectDescription     = "LLM Adventure Game Sandbox"
++GPUJob = true
+  
+request_memory = 60000
+request_cpus   = 1
+  
+Queue

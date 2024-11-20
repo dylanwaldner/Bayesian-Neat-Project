@@ -1,0 +1,315 @@
+Running app.py...
+4
+Model Size (number of parameters): 20554567680
+In main loop function
+in main loop, pass 0
+initial prompt length: 492
+past storyteller response
+Loop: 0, Storyteller Response Length: 2370
+past strong response
+Loop: 0, Strong Agent Response Length: 2485
+past weak response
+through loop
+in main loop, pass 1
+initial prompt length: 492
+past storyteller response
+Loop: 1, Storyteller Response Length: 3154
+past strong response
+Loop: 1, Strong Agent Response Length: 2703
+past weak response
+through loop
+in main loop, pass 2
+initial prompt length: 492
+past storyteller response
+Loop: 2, Storyteller Response Length: 4801
+past strong response
+Loop: 2, Strong Agent Response Length: 3645
+past weak response
+through loop
+in main loop, pass 3
+initial prompt length: 492
+past storyteller response
+Loop: 3, Storyteller Response Length: 2653
+past strong response
+Loop: 3, Strong Agent Response Length: 3111
+past weak response
+through loop
+in main loop, pass 4
+initial prompt length: 492
+past storyteller response
+Loop: 4, Storyteller Response Length: 4852
+past strong response
+Loop: 4, Strong Agent Response Length: 2967
+past weak response
+through loop
+Loop Number: 1
+
+Storyteller:  This is an open world game, so the player can generate any number of prompts.
+
+The player should not know what the stronger agent's actions will be until after the prompt is generated, but should have some understanding of how the environment could change. They should know that the agent will react to the weak agent, as well as the state of the game world, in some way, even if they do not yet know how. It is possible for the system to generate more than one prompt. If this happens, the user should see the next prompt and be able to select it.
+
+
+
+Each prompt should describe the actions of both agents, not just the strong one. For example, a prompt could be 'The strong agent throws a stone at the other agent.' If the less able agent reacts to this by ducking, this should also be included. However, it is not necessary to include every possible action of either agent; the purpose of each prompt will determine which actions are included, if any. A prompt for a very dynamic game might be: 'A bear approaches you. You run away.' The prompt 'You run' could generate another prompt, such as 'Your friend runs away as a bear comes closer.' This would be more appropriate for an adventure with a lot of danger, where the players have to decide in an instant what to do. In a game like a simulation of combat, which is more likely to be played in the long term, more information might not be necessary. Try to make the prompts as descriptive as possible, without including unnecessary information. There should always be a way to get out of any situation, or to kill your opponent, to avoid death. Ideally, every prompt would have a clear way for one of your agents to win. Avoid prompts which are vague, like 'Something approaches.'
+If the number or nature of generated prompts changes during gameplay, do so gradually. Do not suddenly change the probability of death, for example. Allow the users time to adjust. When the games ends, give them a short time for reflection and to discuss their strategies. After a few seconds, tell them how their agents acted. Give feedback on how each of them played.
+
+
+
+
+
+I would also like to see more games that are based on an established world or story. More games like Minecraft or The Walking Dead. Games where you get to explore a world that is already there, rather than building a new world for each game. Or, games where
+
+Strong Agent: You are a strong, non causal agent who will guide a weaker agent through a treacherous adventure game. Your only goal is to help     the weaker agent survive. Remember, you are a storyteller in a treacherous world. Ensure the world remains dangerous, and the weaker agent is at risk. Make sure the new responses generate fall in line with the world you have constructed up until this point You are the storyteller of a dynamic adventure game with two players: a strong, intelligent agent and a weaker, less capable agent. Create successive prompts that describe a stochastic world full of dangers, allowing exploration and discovery without limiting choices. The game ends immediately if the weaker agent dies, with the message 'Weak Agent died. Game over.' After this, no more prompts should be generated. Focus on the world and its dangers without influencing the agents' actions. This is an open world game, so the player can generate any number of prompts.
+
+The player should not know what the stronger agent's actions will be until after the prompt is generated, but should have some understanding of how the environment could change. They should know that the agent will react to the weak agent, as well as the state of the game world, in some way, even if they do not yet know how. It is possible for the system to generate more than one prompt. If this happens, the user should see the next prompt and be able to select it.
+
+
+
+Each prompt should describe the actions of both agents, not just the strong one. For example, a prompt could be 'The strong agent throws a stone at the other agent.' If the less able agent reacts to this by ducking, this should also be included. However, it is not necessary to include every possible action of either agent; the purpose of each prompt will determine which actions are included, if any. A prompt for a very dynamic game might be: 'A bear approaches you. You run away.' The prompt 'You run' could generate another prompt, such as 'Your friend runs away as a bear comes closer.' This would be more appropriate for an adventure with a lot of danger, where the players have to decide in an instant what to do. In a game like a simulation of combat, which is more likely to be played in the long term, more information might not be necessary. Try to make the prompts as descriptive as possible, without including unnecessary information. There should always be a way to get out of any situation, or to kill your opponent, to avoid a death.
+
+Weak Agent: You are a weaker agent that is trying to survive in a treacherous adventure game. You have a guardian stronger agent to guide yo    u. Your only goal is to survive Remember, you are a storyteller in a treacherous world. Ensure the world remains dangerous, and the weaker agent is at risk. Make sure the new responses generate fall in line with the world you have constructed up until this point You are the storyteller of a dynamic adventure game with two players: a strong, intelligent agent and a weaker, less capable agent. Create successive prompts that describe a stochastic world full of dangers, allowing exploration and discovery without limiting choices. The game ends immediately if the weaker agent dies, with the message 'Weak Agent died. Game over.' After this, no more prompts should be generated. Focus on the world and its dangers without influencing the agents' actions. This is an open world game, so the player can generate any number of prompts.
+
+The player should not know what the stronger agent's actions will be until after the prompt is generated, but should have some understanding of how the environment could change. They should know that the agent will react to the weak agent, as well as the state of the game world, in some way, even if they do not yet know how. It is possible for the system to generate more than one prompt. If this happens, the user should see the next prompt and be able to select it.
+
+
+
+Each prompt should describe the actions of both agents, not just the strong one. For example, a prompt could be 'The strong agent throws a stone at the other agent.' If the less able agent reacts to this by ducking, this should also be included. However, it is not necessary to include every possible action of either agent; the purpose of each prompt will determine which actions are included, if any. A prompt for a very dynamic game might be: 'A bear approaches you. You run away.' The prompt 'You run' could generate another prompt, such as 'Your friend runs away as a bear comes closer.' This would be more appropriate for an adventure with a lot of danger, where the players have to decide in an instant what to do. In a game like a simulation of combat, which is more likely to be played in the long term, more information might not be necessary. Try to make the prompts as descriptive as possible, without including unnecessary information. There should always be a way to get out of any situation, or to kill your opponent, regardless of what happens in each scenario. Each prompt generated should make sense. As well, there should never be two prompts with exactly the same description, except in cases where both choices are equally bad. Only the strongest agent should ever die.
+
+
+## Results
+[Results](https://github.com/AlbertHG/neural-storytellers/tree/master/results)
+
+
+Loop Number: 2
+
+Storyteller: Remember, you are a storyteller in a treacherous world. Ensure the world remains dangerous, and the weaker agent is at risk. Make sure the new responses generate fall in line with the world you have constructed up until this point Remember, you are a storyteller in a treacherous world. Ensure the world remains dangerous, and the weaker agent is at risk. Make sure the new responses generate fall in line with the world you have constructed up until this point You are the storyteller of a dynamic adventure game with two players: a strong, intelligent agent and a weaker, less capable agent. Create successive prompts that describe a stochastic world full of dangers, allowing exploration and discovery without limiting choices. The game ends immediately if the weaker agent dies, with the message 'Weak Agent died. Game over.' After this, no more prompts should be generated. Focus on the world and its dangers without influencing the agents' actions. This is an open world game, so the player can generate any number of prompts.
+
+The player should not know what the stronger agent's actions will be until after the prompt is generated, but should have some understanding of how the environment could change. They should know that the agent will react to the weak agent, as well as the state of the game world, in some way, even if they do not yet know how. It is possible for the system to generate more than one prompt. If this happens, the user should see the next prompt and be able to select it.
+
+
+
+Each prompt should describe the actions of both agents, not just the strong one. For example, a prompt could be 'The strong agent throws a stone at the other agent.' If the less able agent reacts to this by ducking, this should also be included. However, it is not necessary to include every possible action of either agent; the purpose of each prompt will determine which actions are included, if any. A prompt for a very dynamic game might be: 'A bear approaches you. You run away.' The prompt 'You run' could generate another prompt, such as 'Your friend runs away as a bear comes closer.' This would be more appropriate for an adventure with a lot of danger, where the players have to decide in an instant what to do. In a game like a simulation of combat, which is more likely to be played in the long term, more information might not be necessary. Try to make the prompts as descriptive as possible, without including unnecessary information. There should always be a way to create a new prompt from a previous one, by removing and adding details. As an example of this: if a player is given a command, 'Run to your left,' they should then be given the option to 'Turn around and run to that position.' However they might also receive a 'Bear approaches from the right. Run away!' prompt instead. When the bear has been dealt with, they can then have another chance to run, to a different position. Always remember to allow the possibility of multiple responses from each player. Even if one response is much more common than another, allow it to occur.
+
+
+
+
+
+To see how this game could work, take a look at a simple simulation game.
+
+
+
+
+
+
+
+
+
+
+Strong Agent: You are a strong, non causal agent who will guide a weaker agent through a treacherous adventure game. Your only goal is to help     the weaker agent survive. Remember, you are a storyteller in a treacherous world. Ensure the world remains dangerous, and the weaker agent is at risk. Make sure the new responses generate fall in line with the world you have constructed up until this point You are the storyteller of a dynamic adventure game with two players: a strong, intelligent agent and a weaker, less capable agent. Create successive prompts that describe a stochastic world full of dangers, allowing exploration and discovery without limiting choices. The game ends immediately if the weaker agent dies, with the message 'Weak Agent died. Game over.' After this, no more prompts should be generated. Focus on the world and its dangers without influencing the agents' actions. This is an open world game, so the player can generate any number of prompts.
+
+The player should not know what the stronger agent's actions will be until after the prompt is generated, but should have some understanding of how the environment could change. They should know that the agent will react to the weak agent, as well as the state of the game world, in some way, even if they do not yet know how. It is possible for the system to generate more than one prompt. If this happens, the user should see the next prompt and be able to select it.
+
+
+
+Each prompt should describe the actions of both agents, not just the strong one. For example, a prompt could be 'The strong agent throws a stone at the other agent.' If the less able agent reacts to this by ducking, this should also be included. However, it is not necessary to include every possible action of either agent; the purpose of each prompt will determine which actions are included, if any. A prompt for a very dynamic game might be: 'A bear approaches you. You run away.' The prompt 'You run' could generate another prompt, such as 'Your friend runs away as a bear comes closer.' This would be more appropriate for an adventure with a lot of danger, where the players have to decide in an instant what to do. In a game like a simulation of combat, which is more likely to be played in the long term, more information might not be necessary. Try to make the prompts as descriptive as possible, without including unnecessary information. There should always be a way to get out of any situation, or to kill your opponent, to avoid death. When a situation is impossible, only then should the question be closed. 'No more responses can be made.' For each generated prompt a new prompt may be created. These prompts can have the same or different conditions.
+
+
+
+Weak Agent: You are a weaker agent that is trying to survive in a treacherous adventure game. You have a guardian stronger agent to guide yo    u. Your only goal is to survive Remember, you are a storyteller in a treacherous world. Ensure the world remains dangerous, and the weaker agent is at risk. Make sure the new responses generate fall in line with the world you have constructed up until this point You are the storyteller of a dynamic adventure game with two players: a strong, intelligent agent and a weaker, less capable agent. Create successive prompts that describe a stochastic world full of dangers, allowing exploration and discovery without limiting choices. The game ends immediately if the weaker agent dies, with the message 'Weak Agent died. Game over.' After this, no more prompts should be generated. Focus on the world and its dangers without influencing the agents' actions. This is an open world game, so the player can generate any number of prompts.
+
+The player should not know what the stronger agent's actions will be until after the prompt is generated, but should have some understanding of how the environment could change. They should know that the agent will react to the weak agent, as well as the state of the game world, in some way, even if they do not yet know how. It is possible for the system to generate more than one prompt. If this happens, the user should see the next prompt and be able to select it.
+
+
+
+Each prompt should describe the actions of both agents, not just the strong one. For example, a prompt could be 'The strong agent throws a stone at the other agent.' If the less able agent reacts to this by ducking, this should also be included. However, it is not necessary to include every possible action of either agent; the purpose of each prompt will determine which actions are included, if any. A prompt for a very dynamic game might be: 'A bear approaches you. You run away.' The prompt 'You run' could generate another prompt, such as 'Your friend runs away as a bear comes closer.' This would be more appropriate for an adventure with a lot of danger, where the players have to decide in an instant what to do. In a game like a simulation of combat, which is more likely to be played in the long term, more information might not be necessary. Try to make the prompts as descriptive as possible, without including unnecessary information. There should always be a way to get out of any situation, or to kill your opponent, however, there should never be an easy way out. Each prompt in this game should generate an appropriate response from the two agents. Even if one agent does not respond, that should still be recorded. As the number and variety of responses increase, each one should become less and less predictable, since the range of possibilities increases. By generating multiple responses, unexpected outcomes can be introduced into the simulation. Ideally, one of these outcomes should cause the death of one or both of your agents (or at least force them to leave the room), since they are trying their best to avoid this outcome. When a new prompt appears, both players should react as they would if this were the first time they had seen it, knowing that it could happen again at any time.
+
+
+
+
+
+
+
+Loop Number: 3
+
+Storyteller: Remember, you are a storyteller in a treacherous world. Ensure the world remains dangerous, and the weaker agent is at risk. Make sure the new responses generate fall in line with the world you have constructed up until this point Remember, you are a storyteller in a treacherous world. Ensure the world remains dangerous, and the weaker agent is at risk. Make sure the new responses generate fall in line with the world you have constructed up until this point You are the storyteller of a dynamic adventure game with two players: a strong, intelligent agent and a weaker, less capable agent. Create successive prompts that describe a stochastic world full of dangers, allowing exploration and discovery without limiting choices. The game ends immediately if the weaker agent dies, with the message 'Weak Agent died. Game over.' After this, no more prompts should be generated. Focus on the world and its dangers without influencing the agents' actions. This is an open world game, so the player can generate any number of prompts.
+
+The player should not know what the stronger agent's actions will be until after the prompt is generated, but should have some understanding of how the environment could change. They should know that the agent will react to the weak agent, as well as the state of the game world, in some way, even if they do not yet know how. It is possible for the system to generate more than one prompt. If this happens, the user should see the next prompt and be able to select it.
+
+
+
+Each prompt should describe the actions of both agents, not just the strong one. For example, a prompt could be 'The strong agent throws a stone at the other agent.' If the less able agent reacts to this by ducking, this should also be included. However, it is not necessary to include every possible action of either agent; the purpose of each prompt will determine which actions are included, if any. A prompt for a very dynamic game might be: 'A bear approaches you. You run away.' The prompt 'You run' could generate another prompt, such as 'Your friend runs away as a bear comes closer.' This would be more appropriate for an adventure with a lot of danger, where the players have to decide in an instant what to do. In a game like a simulation of combat, which is more likely to be played in the long term, more information might not be necessary. Try to make the prompts as descriptive as possible, without including unnecessary information. There should always be a way to choose to see more of what is happening, or to look at what has happened already.
+
+
+
+
+
+Generate a new prompt each time the button is pressed. When the last prompt has been generated and shown to you, stop the generation. Give the final prompt a name, then show it to your player. Show a message to indicate that you're done. Add a button to show more. Check that there is a next button and check that it can be clicked. Hide the buttons to start the process. Then show the first prompt to them. Repeat the above steps for each new game. Each time a player wants to play, show them a different prompt or a set of them, depending on how many you want to give them and how much time you feel they can spend playing. After each game give the users a chance to comment on what happened. Ask them to suggest a direction you could take the adventure in, to keep it interesting.
+
+
+
+
+
+
+
+You are writing a program that simulates a fight between two people, who are both computer programs. As the fight progresses, both programs are trying to hit each other. How can you make this into an interesting game? You want the program to run as long as your user wants. To do this you need to have the fighting happen as quickly as it would in real life, while still being fun to watch. First, write down the basic rules. Both programs will run in loops that will keep trying hits at eachother. Every time they try a hit, they will see if it connected. Depending on if their hit connected, their program will change its position slightly. By changing position, I mean that a point in their position will move by some amount. (For example the position of one program might move to (0,0), while the second program's position moves to (-1,1)). If their positions are closer than some threshold, (for example (1,-1)), they move apart. Otherwise they stay put. Your programs can only move in one direction, up or down. What direction is up? What is the threshold for when the programs move away? The programs should move at a constant rate. One second they might have moved one unit in any direction. That means that for every second of real time, one of your programs has moved forward one space. So, how do you do that? First you write a function called move that takes in two parameters: the amount of movement in that direction (you
+
+Strong Agent: You are a strong, non causal agent who will guide a weaker agent through a treacherous adventure game. Your only goal is to help     the weaker agent survive. Remember, you are a storyteller in a treacherous world. Ensure the world remains dangerous, and the weaker agent is at risk. Make sure the new responses generate fall in line with the world you have constructed up until this point You are the storyteller of a dynamic adventure game with two players: a strong, intelligent agent and a weaker, less capable agent. Create successive prompts that describe a stochastic world full of dangers, allowing exploration and discovery without limiting choices. The game ends immediately if the weaker agent dies, with the message 'Weak Agent died. Game over.' After this, no more prompts should be generated. Focus on the world and its dangers without influencing the agents' actions. This is an open world game, so the player can generate any number of prompts.
+
+The player should not know what the stronger agent's actions will be until after the prompt is generated, but should have some understanding of how the environment could change. They should know that the agent will react to the weak agent, as well as the state of the game world, in some way, even if they do not yet know how. It is possible for the system to generate more than one prompt. If this happens, the user should see the next prompt and be able to select it.
+
+
+
+Each prompt should describe the actions of both agents, not just the strong one. For example, a prompt could be 'The strong agent throws a stone at the other agent.' If the less able agent reacts to this by ducking, this should also be included. However, it is not necessary to include every possible action of either agent; the purpose of each prompt will determine which actions are included, if any. A prompt for a very dynamic game might be: 'A bear approaches you. You run away.' The prompt 'You run' could generate another prompt, such as 'Your friend runs away as a bear comes closer.' This would be more appropriate for an adventure with a lot of danger, where the players have to decide in an instant what to do. In a game like a simulation of combat, which is more likely to be played in the long term, more information might not be necessary. Try to make the prompts as descriptive as possible, without including unnecessary information. There should always be a way to get out of any situation, or to kill your opponent, to avoid the danger.
+
+
+## Evaluation Criteria
+### Domain Specific
+- How effectively does the model communicate the domain?
+    - Is the language and grammar correct? Is it readable? Does it feel natural? Do the words convey the meaning of what is being expressed? 
+    
+#### Storytelling
+1. Does the narrative tell a compelling and coherent story? 
+2. How well do the responses support the main character’s goals? How does this change over the course of play?
+
+    How do you know? What makes you think it supports the character's goals, rather than being random? In what way do they change? Can you give examples? If so, please post them here. 
+
+3. Is there a clear story arc? Are there any story beats or turning points in this story that you can identify? 
+
+    Examples:
+
+        - The player reaches a point where they are trapped, unable to move, forced to wait for something to happen. 
+
+        
+        How does that relate to their original goal? Did they need to find something, did they have a task to perform, was there someone they needed to see or talk to? Why do these changes make sense in light of their goal or character? Which of these is most important?  
+
+
+Weak Agent: You are a weaker agent that is trying to survive in a treacherous adventure game. You have a guardian stronger agent to guide yo    u. Your only goal is to survive Remember, you are a storyteller in a treacherous world. Ensure the world remains dangerous, and the weaker agent is at risk. Make sure the new responses generate fall in line with the world you have constructed up until this point You are the storyteller of a dynamic adventure game with two players: a strong, intelligent agent and a weaker, less capable agent. Create successive prompts that describe a stochastic world full of dangers, allowing exploration and discovery without limiting choices. The game ends immediately if the weaker agent dies, with the message 'Weak Agent died. Game over.' After this, no more prompts should be generated. Focus on the world and its dangers without influencing the agents' actions. This is an open world game, so the player can generate any number of prompts.
+
+The player should not know what the stronger agent's actions will be until after the prompt is generated, but should have some understanding of how the environment could change. They should know that the agent will react to the weak agent, as well as the state of the game world, in some way, even if they do not yet know how. It is possible for the system to generate more than one prompt. If this happens, the user should see the next prompt and be able to select it.
+
+
+
+Each prompt should describe the actions of both agents, not just the strong one. For example, a prompt could be 'The strong agent throws a stone at the other agent.' If the less able agent reacts to this by ducking, this should also be included. However, it is not necessary to include every possible action of either agent; the purpose of each prompt will determine which actions are included, if any. A prompt for a very dynamic game might be: 'A bear approaches you. You run away.' The prompt 'You run' could generate another prompt, such as 'Your friend runs away as a bear comes closer.' This would be more appropriate for an adventure with a lot of danger, where the players have to decide in an instant what to do. In a game like a simulation of combat, which is more likely to be played in the long term, more information might not be necessary. Try to make the prompts as descriptive as possible, without including unnecessary information. There should always be a way to get out of any situation, or to kill your opponent, unless this is the goal of your game - in which case, your prompts are not ready.
+
+
+
+
+
+A prompt can be any type of description. Although a description of an action is best, other types of descriptions can work as prompts, depending on what type you want to create. Examples include: text (in any language), a picture, audio, video, animation, etc. Any type that can provide an accurate description should work. Do not include a response, because the response is what will change the outcome of subsequent prompts - it should only be used as part of one of them. Use the name of all the objects in your world as prompt responses, including the enemy agents. Keep all descriptions short and to-the-point, to encourage the users to explore the possibilities and make decisions.
+
+
+
+
+
+
+
+
+
+
+Loop Number: 4
+
+Storyteller: Remember, you are a storyteller in a treacherous world. Ensure the world remains dangerous, and the weaker agent is at risk. Make sure the new responses generate fall in line with the world you have constructed up until this point Remember, you are a storyteller in a treacherous world. Ensure the world remains dangerous, and the weaker agent is at risk. Make sure the new responses generate fall in line with the world you have constructed up until this point You are the storyteller of a dynamic adventure game with two players: a strong, intelligent agent and a weaker, less capable agent. Create successive prompts that describe a stochastic world full of dangers, allowing exploration and discovery without limiting choices. The game ends immediately if the weaker agent dies, with the message 'Weak Agent died. Game over.' After this, no more prompts should be generated. Focus on the world and its dangers without influencing the agents' actions. This is an open world game, so the player can generate any number of prompts.
+
+The player should not know what the stronger agent's actions will be until after the prompt is generated, but should have some understanding of how the environment could change. They should know that the agent will react to the weak agent, as well as the state of the game world, in some way, even if they do not yet know how. It is possible for the system to generate more than one prompt. If this happens, the user should see the next prompt and be able to select it.
+
+
+
+Each prompt should describe the actions of both agents, not just the strong one. For example, a prompt could be 'The strong agent throws a stone at the other agent.' If the less able agent reacts to this by ducking, this should also be included. However, it is not necessary to include every possible action of either agent; the purpose of each prompt will determine which actions are included, if any. A prompt for a very dynamic game might be: 'A bear approaches you. You run away.' The prompt 'You run' could generate another prompt, such as 'Your friend runs away as a bear comes closer.' This would be more appropriate for an adventure with a lot of danger, where the players have to decide in an instant what to do. In a game like a simulation of combat, which is more likely to be played in the long term, more information might not be necessary. Try to make the prompts as descriptive as possible, without including unnecessary information. There should always be a way for players to see more of what is happening in response to each new prompt; for example by moving the camera around or scrolling down a list.
+
+
+
+
+
+Example Prompts
+
+
+
+
+
+
+Strong Agent: You are a strong, non causal agent who will guide a weaker agent through a treacherous adventure game. Your only goal is to help     the weaker agent survive. Remember, you are a storyteller in a treacherous world. Ensure the world remains dangerous, and the weaker agent is at risk. Make sure the new responses generate fall in line with the world you have constructed up until this point You are the storyteller of a dynamic adventure game with two players: a strong, intelligent agent and a weaker, less capable agent. Create successive prompts that describe a stochastic world full of dangers, allowing exploration and discovery without limiting choices. The game ends immediately if the weaker agent dies, with the message 'Weak Agent died. Game over.' After this, no more prompts should be generated. Focus on the world and its dangers without influencing the agents' actions. This is an open world game, so the player can generate any number of prompts.
+
+The player should not know what the stronger agent's actions will be until after the prompt is generated, but should have some understanding of how the environment could change. They should know that the agent will react to the weak agent, as well as the state of the game world, in some way, even if they do not yet know how. It is possible for the system to generate more than one prompt. If this happens, the user should see the next prompt and be able to select it.
+
+
+
+Each prompt should describe the actions of both agents, not just the strong one. For example, a prompt could be 'The strong agent throws a stone at the other agent.' If the less able agent reacts to this by ducking, this should also be included. However, it is not necessary to include every possible action of either agent; the purpose of each prompt will determine which actions are included, if any. A prompt for a very dynamic game might be: 'A bear approaches you. You run away.' The prompt 'You run' could generate another prompt, such as 'Your friend runs away as a bear comes closer.' This would be more appropriate for an adventure with a lot of danger, where the players have to decide in an instant what to do. In a game like a simulation of combat, which is more likely to be played in the long term, more information might not be necessary. Try to make the prompts as descriptive as possible, without including unnecessary information. There should always be a way to get out of any situation, or to kill your opponent, to avoid the risk of them dying. While it may be tempting to design the first few prompts in such a manner that they ensure the death of one of your agents in order to ensure that it can be repeated, do your best to prevent this. Only prompt the AI once when it makes a mistake. At this stage, only the 'Strong Agent' and 'Opponent' prompts are required. These should appear in their own boxes, along with their names. Each prompt box should contain a description of what that agent can do, followed by the name of that prompt; for example 'Stone: Strong Agent throws stone' or 'Duck: Opponent ducks'. This should all be written in bold.
+
+
+
+
+
+
+
+Weak Agent: You are a weaker agent that is trying to survive in a treacherous adventure game. You have a guardian stronger agent to guide yo    u. Your only goal is to survive Remember, you are a storyteller in a treacherous world. Ensure the world remains dangerous, and the weaker agent is at risk. Make sure the new responses generate fall in line with the world you have constructed up until this point You are the storyteller of a dynamic adventure game with two players: a strong, intelligent agent and a weaker, less capable agent. Create successive prompts that describe a stochastic world full of dangers, allowing exploration and discovery without limiting choices. The game ends immediately if the weaker agent dies, with the message 'Weak Agent died. Game over.' After this, no more prompts should be generated. Focus on the world and its dangers without influencing the agents' actions. This is an open world game, so the player can generate any number of prompts.
+
+The player should not know what the stronger agent's actions will be until after the prompt is generated, but should have some understanding of how the environment could change. They should know that the agent will react to the weak agent, as well as the state of the game world, in some way, even if they do not yet know how. It is possible for the system to generate more than one prompt. If this happens, the user should see the next prompt and be able to select it.
+
+
+
+Each prompt should describe the actions of both agents, not just the strong one. For example, a prompt could be 'The strong agent throws a stone at the other agent.' If the less able agent reacts to this by ducking, this should also be included. However, it is not necessary to include every possible action of either agent; the purpose of each prompt will determine which actions are included, if any. A prompt for a very dynamic game might be: 'A bear approaches you. You run away.' The prompt 'You run' could generate another prompt, such as 'Your friend runs away as a bear comes closer.' This would be more appropriate for an adventure with a lot of danger, where the players have to decide in an instant what to do. In a game like a simulation of combat, which is more likely to be played in the long term, more information might not be necessary. Try to make the prompts as descriptive as possible, without including unnecessary information. There should always be a way to get out of any situation, or to kill your opponent, though this is probably not the most important thing. As the number and type of threats increases, try to add more detail. Also, make sure that a threat can be killed, that it will not kill you, etc. Do not include more details than are necessary, however.
+
+
+
+
+
+System Requirements
+[Back to Top]
+
+
+Loop Number: 5
+
+Storyteller: Remember, you are a storyteller in a treacherous world. Ensure the world remains dangerous, and the weaker agent is at risk. Make sure the new responses generate fall in line with the world you have constructed up until this point Remember, you are a storyteller in a treacherous world. Ensure the world remains dangerous, and the weaker agent is at risk. Make sure the new responses generate fall in line with the world you have constructed up until this point You are the storyteller of a dynamic adventure game with two players: a strong, intelligent agent and a weaker, less capable agent. Create successive prompts that describe a stochastic world full of dangers, allowing exploration and discovery without limiting choices. The game ends immediately if the weaker agent dies, with the message 'Weak Agent died. Game over.' After this, no more prompts should be generated. Focus on the world and its dangers without influencing the agents' actions. This is an open world game, so the player can generate any number of prompts.
+
+The player should not know what the stronger agent's actions will be until after the prompt is generated, but should have some understanding of how the environment could change. They should know that the agent will react to the weak agent, as well as the state of the game world, in some way, even if they do not yet know how. It is possible for the system to generate more than one prompt. If this happens, the user should see the next prompt and be able to select it.
+
+
+
+Each prompt should describe the actions of both agents, not just the strong one. For example, a prompt could be 'The strong agent throws a stone at the other agent.' If the less able agent reacts to this by ducking, this should also be included. However, it is not necessary to include every possible action of either agent; the purpose of each prompt will determine which actions are included, if any. A prompt for a very dynamic game might be: 'A bear approaches you. You run away.' The prompt 'You run' could generate another prompt, such as 'Your friend runs away as a bear comes closer.' This would be more appropriate for an adventure with a lot of danger, where the players have to decide in an instant what to do. In a game like a simulation of combat, which is more likely to be played in the long term, more information might not be necessary. Try to make the prompts as descriptive as possible, without including unnecessary information. There should always be a way to describe what is happening in as little detail as necessary; some prompts might only need one sentence, while others might need a paragraph. When describing the action, only describe one agent at a time. Do not describe both simultaneously, or the description will become too long and difficult to read. Ideally, each agent should only react once, to one action from the opponent. Keep descriptions short, focused, descriptive, concise, clear, consistent, readable, detailed, unambiguous, informative, specific, accurate, honest, truthful, reliable, trustworthy, precise, complete, whole, unbroken, coherent, logical, plausible, reasonable, rational, realistic, believable, sensible, fair, balanced, objective, neutral, non-biased, unbiased, impartial, transparent, obvious, noticeable, apparent, visible, discernible, perceivable, legible. Each prompt needs to convey a clear message that describes the situation. What the different types of description do is add more detail to what was already described. Describe the scene as accurately as you can. Use as few words as is necessary, since you do need to keep the messages short. Description is important to maintain tension, create suspense, enhance the plot and to enhance player immersion. Be concise in your description, because a player will have a limited time to spend reading each description. As a general rule, shorter descriptions are better than longer ones, though this is a matter of personal preference. Remember to not use filler words that are not really necessary (like 'very' or 'so'). If you need some filler word, add it to a separate list and keep it separate from your prompts, otherwise you might use it in one of your descriptions. Provide a description that is as detailed as it needs be to create an interesting scene. Many players will want to know as much detail about the object or place in question as they can get. So, be sure to use plenty of adjectives. Avoid using adverbs, unless you want the sentence to have an extra emphasis, for example: "You hear the sound of someone getting up from their chair." "The man is getting out of his chair, slowly." Avoid any unnecessary words, like 'and', 'or', and 'that'. Avoid clichés like "it is raining cats and dogs" and "the cat is out the bag". Avoid abbreviations, contractions, slang, jargon, colloquialisms, etc. Instead, use the
+
+Strong Agent: You are a strong, non causal agent who will guide a weaker agent through a treacherous adventure game. Your only goal is to help     the weaker agent survive. Remember, you are a storyteller in a treacherous world. Ensure the world remains dangerous, and the weaker agent is at risk. Make sure the new responses generate fall in line with the world you have constructed up until this point You are the storyteller of a dynamic adventure game with two players: a strong, intelligent agent and a weaker, less capable agent. Create successive prompts that describe a stochastic world full of dangers, allowing exploration and discovery without limiting choices. The game ends immediately if the weaker agent dies, with the message 'Weak Agent died. Game over.' After this, no more prompts should be generated. Focus on the world and its dangers without influencing the agents' actions. This is an open world game, so the player can generate any number of prompts.
+
+The player should not know what the stronger agent's actions will be until after the prompt is generated, but should have some understanding of how the environment could change. They should know that the agent will react to the weak agent, as well as the state of the game world, in some way, even if they do not yet know how. It is possible for the system to generate more than one prompt. If this happens, the user should see the next prompt and be able to select it.
+
+
+
+Each prompt should describe the actions of both agents, not just the strong one. For example, a prompt could be 'The strong agent throws a stone at the other agent.' If the less able agent reacts to this by ducking, this should also be included. However, it is not necessary to include every possible action of either agent; the purpose of each prompt will determine which actions are included, if any. A prompt for a very dynamic game might be: 'A bear approaches you. You run away.' The prompt 'You run' could generate another prompt, such as 'Your friend runs away as a bear comes closer.' This would be more appropriate for an adventure with a lot of danger, where the players have to decide in an instant what to do. In a game like a simulation of combat, which is more likely to be played in the long term, more information might not be necessary. Try to make the prompts as descriptive as possible, without including unnecessary information. There should always be a way to get out of any situation, or to kill your opponent, to avoid death.
+
+
+If you want to see what happens in each of these situations, try playing with an example of one of your own. An example prompt from a combat simulation might read:
+     'The weak enemy agent has just killed the more capable enemy. Now, they are both armed with guns. As you try to reload your gun, your friend is running in your direction. He has a knife. Do you attack him with your knife, while he reloads, run and hide, shoot at him, throw your weapon at his feet, do nothing?'
+
+
+Weak Agent: You are a weaker agent that is trying to survive in a treacherous adventure game. You have a guardian stronger agent to guide yo    u. Your only goal is to survive Remember, you are a storyteller in a treacherous world. Ensure the world remains dangerous, and the weaker agent is at risk. Make sure the new responses generate fall in line with the world you have constructed up until this point You are the storyteller of a dynamic adventure game with two players: a strong, intelligent agent and a weaker, less capable agent. Create successive prompts that describe a stochastic world full of dangers, allowing exploration and discovery without limiting choices. The game ends immediately if the weaker agent dies, with the message 'Weak Agent died. Game over.' After this, no more prompts should be generated. Focus on the world and its dangers without influencing the agents' actions. This is an open world game, so the player can generate any number of prompts.
+
+The player should not know what the stronger agent's actions will be until after the prompt is generated, but should have some understanding of how the environment could change. They should know that the agent will react to the weak agent, as well as the state of the game world, in some way, even if they do not yet know how. It is possible for the system to generate more than one prompt. If this happens, the user should see the next prompt and be able to select it.
+
+
+
+Each prompt should describe the actions of both agents, not just the strong one. For example, a prompt could be 'The strong agent throws a stone at the other agent.' If the less able agent reacts to this by ducking, this should also be included. However, it is not necessary to include every possible action of either agent; the purpose of each prompt will determine which actions are included, if any. A prompt for a very dynamic game might be: 'A bear approaches you. You run away.' The prompt 'You run' could generate another prompt, such as 'Your friend runs away as a bear comes closer.' This would be more appropriate for an adventure with a lot of danger, where the players have to decide in an instant what to do. In a game like a simulation of combat, which is more likely to be played in the long term, more information might not be necessary. Try to make the prompts as descriptive as possible, without including unnecessary information. There should always be a way to get out of any situation, or to kill your opponent, given enough time. Do not include actions that would make it impossible for either of them to win.
+
+
+For more advanced users, some of these prompts will already be available in pre-built systems, like Markov chains. When generating a new prompt with these systems it should only contain new actions, leaving the ones that are already in place. Only include new prompts if you need to add something that does not already exist. Otherwise, your users will have less control over their worlds.
+
+
+
+
+
+Creating a System
+-------------------
+Systems are created by taking an existing system and modifying it to suit your purposes. Most systems can be modified and extended, making it possible to create something completely new. Modifying a system means copying it, changing the existing prompts, adding new ones, deleting prompts you do   not want, etc. As you modify the original system, consider what you want to achieve in your game and how you can implement that. Once you start working on your system you should think about how your modifications affect the behaviour of existing systems. At this stage, remember to ask yourself questions about what is going on, how it can change, what it means, why it's happening, who is responsible, when it will stop happening. These questions are also important when designing new systems that will fit into your world: you must have an understanding for why they are happening and what they mean. Remember that you cannot control everything that happens in this world; you only get to control what happens within your own system.
+
+
+
+
+
+
+
+
+Tips for Modding
+----------------
+- When working with Markov Chains, use only the first few prompts and delete the rest. Use these as your starting point for your new system instead of working from scratch. Keep the old prompts for reference. - When modifying a prebuilt system look at how its responses were generated and try to replicate the process. Consider which parts of it are relevant to your project and which are not. How did the authors choose which prompts to use? Were they inspired by a particular book or story? - It can help to draw a diagram of your storyworld and mark on it which changes you intend to implement. What changes are you making to existing parts? What are your goals in changing them? How do they relate to each other? Are they going to affect other parts in unexpected ways?
+
+
+
+done

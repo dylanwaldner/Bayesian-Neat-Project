@@ -1,0 +1,29 @@
+Universe                = vanilla
+Executable              = /bin/bash
+Arguments               = app.sh
+Environment             = "PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True"
+get_env                 = true
+    
+#Requirements           = Nandor
+Requirements            = (Target.GPUSlot)
+Request_GPUs            = 4
+Initialdir              = /scratch/cluster/dylantw/Risto/init
+Output                  = full15_loss_test.out
+Error                   = full15_loss_test.err
+Log                     = full15_loss_test.log
+    
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files    = app.py, app.sh, emotion_rate.py, bnn.py, config-feedforward, evolve_neat.py
+#transfer_output_files   = 
+  
+# UTCS-specific attributes
++Group                  = "UNDER"
++Project                = "AI_ROBOTICS"
++ProjectDescription     = "LLM Adventure Game Sandbox"
++GPUJob = true
+  
+request_memory = 60000
+request_cpus   = 4
+  
+Queue

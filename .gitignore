@@ -1,0 +1,12 @@
+*.log
+*.err
+*.out
+*.png
+*.prof
+*.xlsx
+*.zip
+*.txt
+neat-python/
+
+app.sh
+profile.sh
