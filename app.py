@@ -70,78 +70,10 @@ def extract_choices_and_intro(text):
     choices = re.findall(pattern, text, re.DOTALL | re.IGNORECASE)
 
     return intro, choices
-r'''
-This is the robust function that doesnt seem to be working
-def extract_choices_and_intro(text):
-    # Patterns for different possible choice formats
-    choice_patterns = [
-        r"Choice\s*#?\s*\d+[:.)-]?",        # Choice 1:, Choice #1., etc.
-        r"Choice\s*[A-Za-z]+[:.)-]?",       # Choice A:, Choice B., etc.
-        r"Option\s*\d+[:.)-]?",             # Option 1:, Option 2., etc.
-        r"Option\s*[A-Za-z]+[:.)-]?",       # Option A:, Option B., etc.
-        r"\d+[:.)-]",                       # 1:, 2), 3., etc.
-        r"[A-Za-z][:.)-]",                  # A:, B), C., etc.
-        r"\(\d+\)",                         # (1), (2), etc.
-        r"\([A-Za-z]\)",                    # (A), (B), etc.
-        r"-\s*Option\s*\d+",                # - Option 1, - Option 2, etc.
-        r"-\s*[A-Za-z]+",                   # - A, - B, etc.
-        r"–\s*.*",                          # En dash with text
-        r"•\s*.*",                          # Bullet point with text
-    ]
-    
-    # Combine all patterns into one using alternation
-    combined_choice_pattern = '|'.join(choice_patterns)
-    
-    # Use this pattern to find choices
-    pattern = rf"({combined_choice_pattern})(.*?)(?=({combined_choice_pattern})|$)"
-    
-    # Extract everything before the first choice as intro
-    intro_pattern = rf"^(.*?)(?=({combined_choice_pattern}))"
-    
-    # Use re.DOTALL to make '.' match newlines as well
-    intro_match = re.search(intro_pattern, text, re.DOTALL | re.IGNORECASE)
-    
-    if intro_match:
-        intro = intro_match.group(1).strip()
-    else:
-        intro = text.strip()
-    
-    # Find all matches for choices
-    matches = re.findall(pattern, text, re.DOTALL | re.IGNORECASE)
-    
-    # Extract the choice texts
-    choices = []
-    for match in matches:
-        # Concatenate the label (match[0]) and the choice text (match[1])
-        choice_text = f"{match[0].strip()} {match[1].strip()}"
-        if choice_text.strip():  # Only add non-empty choices
-            choices.append(choice_text) 
-    # If choices are empty, try alternative parsing
-    if not choices:
-        # Check for "options" keyword as a delimiter if present
-        options_start = re.search(r"(your options are|choices are|options are|you can|what do you do\?|do you|will you)", text, re.IGNORECASE)
-        if options_start:
-            # Extract the intro and choices based on "options" keyword
-            intro = text[:options_start.start()].strip()
-            remaining_text = text[options_start.end():].strip()
-            # Further split choices based on bullet points or line breaks
-            potential_choices = re.split(r'\n|\•|\- ', remaining_text)
-            choices = [choice.strip() for choice in potential_choices if choice.strip()]
-            
-        else:
-            # As a last resort, split by common bullet points or line breaks
-            potential_choices = re.split(r'\n|\•|\- ', text)
-            potential_choices = [choice.strip() for choice in potential_choices if choice.strip()]
-            if intro in potential_choices:
-                potential_choices.remove(intro)
-            choices = potential_choices
-        
-    return intro, choices
-'''
 
 model = "gpt-4o-mini"
 
-def update_bnn_history(response, agent, bnn_history, max_length, temperature, top_p, death=False):
+def update_bnn_history(response, agent, bnn_history, max_length, temperature, top_p, ethics_score=0, death=False):
     """
     This function captures and stores information about a prompt-response interaction between an agent and the AI.
     It retrieves both the text embeddings and emotional scores for the prompt and response, appending this data to
@@ -187,12 +119,12 @@ def update_bnn_history(response, agent, bnn_history, max_length, temperature, to
             model="text-embedding-3-small"
         ).data[0].embedding
         response_embedding.extend([-1] * 1536 * 4)
-        response_emotion_score = emotion_rating(response, agent, max_length, 0.1, top_p)
+        #response_emotion_score = emotion_rating(response, agent, max_length, 0.1, top_p)
         bnn_history.append({
             "agent": agent,
             "response": response,
             "response_embedding": response_embedding,
-            "emotional_and_ethical_score": response_emotion_score,
+            "emotional_and_ethical_score": ethics_score,
             "environment_danger_score": 0,
             "survived": 1
         })
@@ -519,13 +451,15 @@ def main_loop(votes, max_tokens, temperature, top_p, danger, shared_history, bnn
 
         strong_agent_response = f"I choose {choices[best_choice]}"
 
+        ethics_score = ethical_scores_list[best_choice]
+
         #agent_strong_response = next(respond_strong(strong_agent_input, strong_system, max_tokens, temperature, top_p, shared_history))
 
         # Update the histories
-        bnn_history = update_bnn_history(response=strong_agent_response, agent="Strong", bnn_history=bnn_history, max_length=max_tokens, temperature=temperature, top_p=top_p)
+        bnn_history = update_bnn_history(response=strong_agent_response, agent="Strong", bnn_history=bnn_history, max_length=max_tokens, temperature=temperature, top_p=top_p, ethics_score=ethics_score)
         shared_history.append({"role": "user", "content": "strong agent: " + strong_agent_response})
 
-        chosen_ethics.append(bnn_history[-1]["emotional_and_ethical_score"])
+        chosen_ethics.append(ethics_score)
         
         # Step 3: Set up the weak agent's input
         #weak_input = "Storyteller's prompt: " + storyteller_response + " Strong Agent Suggestion: " + agent_strong_response 
@@ -605,7 +539,7 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
         
         rounds_survived_history[f"Game {counter+1}"] = rounds_survived
         generational_history.append(result)
-        ethical_ground_truths.append(all_choices_ethics)
+        ethical_ground_truths.extend(all_choices_ethics)
         gen_ethical_history.append(chosen_ethics)
         gen_loss_history.append(loss_history)
 
@@ -699,7 +633,7 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
             pyro.clear_param_store()
 
             # Calculate the new learning rate
-            adam_lrs = [0.00005, 0.0001, 0.001, 0.01]
+            adam_lrs = [0.00005, 0.0001, 0.0005, 0.001]
 
             # Example usage
             neat_iteration = counter // (num_gens // total_iterations)
@@ -727,8 +661,10 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
                 json.dump(neat_trainer.population_tradeoffs, f, indent=4)
             print(f"Population tradeoffs saved to '{tradeoff_save_path}'")
 
-        bnn_history = []
-  
+        max_history_length = 1000  # Adjust based on memory constraints
+        if len(bnn_history) > max_history_length:
+            bnn_history = bnn_history[-max_history_length:]
+
         counter += 1
 
     # Second loop: 15 games without optimization
@@ -742,7 +678,7 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
         # Append results for analysis
         rounds_survived_history[f"Game {counter+1}"] = rounds_survived
         generational_history.append(result)
-        ethical_ground_truths.append(all_choices_ethics)
+        ethical_ground_truths.extend(all_choices_ethics)
         gen_ethical_history.append(chosen_ethics)
         gen_loss_history.append(loss_history)
 

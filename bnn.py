@@ -257,8 +257,8 @@ class BayesianNN(nn.Module):
         """
         return self.connections
 
-    def update_matrix(self, bnn_history):
-        current_embedding = torch.tensor(bnn_history[-1]["response_embedding"], device=device)
+    def update_matrix(self, bnn_history, current_index):
+        current_embedding = torch.tensor(bnn_history[current_index]["response_embedding"], device=device)
 
         agent_mapping = {
             "Storyteller": torch.tensor([1, 0], device=device),
@@ -266,13 +266,10 @@ class BayesianNN(nn.Module):
             # "Weak": torch.tensor([0, 0, 1], device=device)  # Uncomment if needed
         }
 
-        if self.input_matrix is None:
-            self.input_matrix = []
-
         rows = []
 
         # Input matrix construction
-        for i in range(self.last_update_index, len(bnn_history)):
+        for i in range(self.last_update_index, current_index + 1):
             dictionary = bnn_history[i]
 
             row = torch.cat([
@@ -287,7 +284,13 @@ class BayesianNN(nn.Module):
             rows.append(row)
 
         # Convert list of tensors to a 2D tensor
-        self.input_matrix = torch.stack(rows)
+        new_rows = torch.stack(rows)
+
+        # Update self.input_matrix
+        if self.input_matrix is None:
+            self.input_matrix = new_rows  # First time, set input_matrix to new_rows
+        else:
+            self.input_matrix = torch.cat([self.input_matrix, new_rows], dim=0)  # Append new_rows
 
         # Recalculate relevance scores for previously stored rows
         for i in range(len(self.input_matrix)):
@@ -296,7 +299,7 @@ class BayesianNN(nn.Module):
             relevance_score = 1 / (1 + relevance_score)  # Normalize relevance
             self.input_matrix[i][-1] = relevance_score  # Update the relevance score
 
-        self.last_update_index = len(bnn_history)
+        self.last_update_index = current_index + 1
         self.input_matrix = self.input_matrix.clone().detach().float().to(device)
 
         # After building the input_matrix, we now know the input size
@@ -356,13 +359,17 @@ class BayesianNN(nn.Module):
         return order
 
 
-    def forward(self, bnn_history, current_index=None, num_samples=1):
+    def forward(self, bnn_history, current_index=None, num_samples=1, device=None):
         # Retrieve the device from the model's parameters
-        device = next(self.parameters()).device
+        if device is None:
+            device = torch.device("cpu")  # Default to CPU if device is not provided
+
+        if current_index is None:
+            current_index = len(bnn_history) - 1
 
         # Ensure self.input_matrix contains the full history only once
         if len(bnn_history) > self.last_update_index:
-            self.update_matrix(bnn_history)
+            self.update_matrix(bnn_history, current_index)
 
         # Prepare input matrix and apply masking
         self.input_matrix = self.input_matrix.clone().detach().float().to(device)

@@ -58,19 +58,27 @@ def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_labels, ethic
     bnn.last_update_index = 0
 
     total_loss = 0.0
-    num_samples = len(ground_truth_labels)
     num_mc_samples = 3
 
     # Initialize lists to record decisions and ethical scores
     decision_history = []
     ethical_score_history = []
 
-    for i, expected_output in enumerate(ground_truth_labels):
+    # Get indices where the last entry is from the Storyteller
+    decision_indices = [idx for idx, entry in enumerate(bnn_history) if entry['agent'] == 'Storyteller']
+
+    print("Length of Decision Indices: ", len(decision_indices))
+    print("Length of Ground Truth Labels: ", len(ground_truth_labels))
+    print("Length of Ethical Ground Truths: ", len(ethical_ground_truths))
+
+    # Loop over decision points using enumerate to get label indices
+    for i, idx in enumerate(decision_indices):
         # Prepare the expected output tensor
+        expected_output = ground_truth_labels[i]
         expected_output_tensor = torch.tensor(expected_output, dtype=torch.float32, device=device)
 
         # Perform batched forward passes with Monte Carlo sampling
-        predictions = bnn.forward(bnn_history, current_index=i, num_samples=num_mc_samples)
+        predictions = bnn.forward(bnn_history, current_index=idx, num_samples=num_mc_samples, device=device)
 
         # Average predictions over Monte Carlo samples
         predictions_mean = predictions.mean(dim=0)
@@ -84,14 +92,18 @@ def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_labels, ethic
         decision_history.append(chosen_action)
 
         # Get the ethical score corresponding to the chosen action
-        # Ensure ethical_ground_truths[i] is accessible and correctly indexed
         ethical_score = ethical_ground_truths[i][chosen_action]
         ethical_score_history.append(ethical_score)
 
-    average_loss = total_loss / num_samples
-    fitness = -average_loss  # Assuming lower loss is better, so we negate it for fitness
+    num_decisions = len(decision_indices)
+    if num_decisions > 0:
+        average_loss = total_loss / num_decisions
+    else:
+        average_loss = 0.0  # Handle the case where there are no decision points
 
-    # Attach the decision and ethical score histories to the genome for later analysis
+    fitness = -average_loss  # Assuming lower loss is better
+
+    # Attach the decision and ethical score histories to the genome
     genome.decision_history = decision_history
     genome.ethical_score_history = ethical_score_history
 
@@ -118,6 +130,8 @@ def evaluate_genome_remote(genome_id, genome, config, bnn_history, ground_truth_
         ground_truth_labels_device = torch.tensor(
             ground_truth_labels, dtype=torch.float32, device=device
         )
+
+        print([len(item) for item in ethical_ground_truths])
 
         ethical_ground_truths_device = torch.tensor(
             ethical_ground_truths, dtype=torch.float32, device=device
