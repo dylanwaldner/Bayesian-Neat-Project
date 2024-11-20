@@ -6,6 +6,8 @@
 *.xlsx
 *.zip
 *.txt
+*.sub
+*.sh
 neat-python/
 
 app.sh
