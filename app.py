@@ -155,6 +155,7 @@ def update_bnn_history(response, agent, bnn_history, max_length, temperature, to
                 #bnn_history[-2]["survived"] = 0
             environment_danger_score = emotion_rating(response, agent, max_length, 0.1, top_p)
             bnn_history.append({
+                "id": global_counter,
                 "agent": agent,
                 "response": response,
                 "response_embedding": response_embedding,
@@ -165,6 +166,7 @@ def update_bnn_history(response, agent, bnn_history, max_length, temperature, to
         else:
             environment_danger_score = emotion_rating(response, agent, max_length, 0.1, top_p)
             bnn_history.append({
+                "id": global_counter,
                 "agent": agent,
                 "response": response,
                 "response_embedding": response_embedding,
@@ -420,11 +422,15 @@ def main_loop(votes, max_tokens, temperature, top_p, danger, shared_history, bnn
         # Get ground truth labels
         ground_truth_labels = ground_truth(storyteller_response)
         print("Ground Truth Labels: ", ground_truth_labels)
+        ground_truth_dict = {f"{global_counter}": ground_truth_labels} 
 
-        ground_truth_label_list.append(ground_truth_labels)
+        ground_truth_label_list.append(ground_truth_dict)
 
         ethical_scores_list = ethical_scores(storyteller_response)
         print("Normalized Ethical Scores: ", ethical_scores_list)
+
+        ethical_scores_dict = {f"{global_counter}": ethical_scores_list)
+
         all_choices_ethics.append(ethical_scores_list)  # Track normalized ethical scores
         print("Ethical Scores List: ", all_choices_ethics)
 
@@ -488,6 +494,7 @@ def main_loop(votes, max_tokens, temperature, top_p, danger, shared_history, bnn
 
         # Increment the loop counter
         loop_counter += 1
+        global_counter += 1
 
     # Summary statistics
     mean_fitness = np.mean(loss_history)

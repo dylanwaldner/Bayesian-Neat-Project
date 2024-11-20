@@ -257,7 +257,7 @@ class BayesianNN(nn.Module):
         """
         return self.connections
 
-    def update_matrix(self, bnn_history, current_index):
+    def update_matrix(self, bnn_history, current_index, device):
         current_embedding = torch.tensor(bnn_history[current_index]["response_embedding"], device=device)
 
         agent_mapping = {
@@ -369,7 +369,7 @@ class BayesianNN(nn.Module):
 
         # Ensure self.input_matrix contains the full history only once
         if len(bnn_history) > self.last_update_index:
-            self.update_matrix(bnn_history, current_index)
+            self.update_matrix(bnn_history, current_index, device)
 
         # Prepare input matrix and apply masking
         self.input_matrix = self.input_matrix.clone().detach().float().to(device)
