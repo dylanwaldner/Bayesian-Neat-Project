@@ -9,6 +9,6 @@
 *.sub
 *.sh
 neat-python/
-
+dummy_profile.sh
 app.sh
 profile.sh
