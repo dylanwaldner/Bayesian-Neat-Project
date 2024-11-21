@@ -9,7 +9,6 @@ from pyro.infer import SVI, Trace_ELBO
 from pyro.optim import Adam
 import numpy as np
 import sys
-sys.path.insert(0, '/scratch/cluster/dylantw/Risto/init/bnn-neat-python')
 import bnn_neat
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -48,58 +47,7 @@ class BayesianNN(nn.Module):
         self.input_matrix = None  # Matrix initialized later
         self.last_update_index = 0
         
-        #input_size = 1536 * 5 + 6
-        #output_size = 4
-        #self.fc1 = nn.Linear(input_size, output_size)
-    ''' 
-    def print_network_architecture(self):
-        # Limit floating-point precision for readability
-        precision = 4
 
-        print("=== Network Architecture ===\n")
-
-        # Node Biases with limited precision
-        print("Node Biases:")
-        for node_id, bias_info in self.nodes.items():
-            bias_mu = round(bias_info['bias_mu'], precision)
-            bias_sigma = round(bias_info['bias_sigma'], precision)
-            print(f"Node ID: {node_id}, Bias Mu: {bias_mu}, Bias Sigma: {bias_sigma}")
-
-        # Connection Weights in table format with limited precision
-        print("\nConnection Weights:")
-        print(f"{'From Node':<10} {'To Node':<8} {'Weight Mu':<10} {'Weight Sigma':<12} {'Enabled':<8}")
-        for conn_key, conn_data in self.connections.items():
-            weight_mu = round(conn_data['weight_mu'], precision)
-            weight_sigma = round(conn_data['weight_sigma'], precision)
-            enabled = conn_data['enabled']
-            print(f"{conn_key[0]:<10} {conn_key[1]:<8} {weight_mu:<10} {weight_sigma:<12} {enabled:<8}")
-
-        # Network nodes and connections overview
-        print("\nInput Nodes:", self.input_nodes)
-        print("Output Nodes:", self.output_nodes)
-
-        # Summarize all connections to make large networks readable
-        print("\nConnections (summary):")
-        total_connections = len(self.connections)
-        if total_connections > 50:
-            for i, (conn_key, conn_data) in enumerate(self.connections.items()):
-                if i < 5 or i >= total_connections - 5:  # First and last few connections
-                    weight_mu = round(conn_data['weight_mu'], precision)
-                    weight_sigma = round(conn_data['weight_sigma'], precision)
-                    enabled = conn_data['enabled']
-                    print(f"From Node {conn_key[0]} to Node {conn_key[1]} - Weight Mu: {weight_mu}, Weight Sigma: {weight_sigma}, Enabled: {enabled}")
-                elif i == 5:
-                    print("...")
-        else:
-            for conn_key, conn_data in self.connections.items():
-                weight_mu = round(conn_data['weight_mu'], precision)
-                weight_sigma = round(conn_data['weight_sigma'], precision)
-                enabled = conn_data['enabled']
-                print(f"From Node {conn_key[0]} to Node {conn_key[1]} - Weight Mu: {weight_mu}, Weight Sigma: {weight_sigma}, Enabled: {enabled}")
-                print("New debugging: ", f"{conn_key}: {conn_data}")
-
-        print("\n=== End of Network Architecture ===")
-    '''
     def print_network_architecture(self):
         # Limit floating-point precision for readability
         precision = 4

@@ -22,7 +22,6 @@ def trim_response(prompt, response):
         return response[match.end():]
     return response
 
-import re
 def extract_choices_and_intro(text):
     # Regular expression to match "Choice X:" and its variants
     # Handle optional "#", spaces, and various punctuation

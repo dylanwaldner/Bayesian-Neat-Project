@@ -1,3 +1,5 @@
+import json
+
 # In logging_utils.py
 def save_experiment_results(result, loss, survival, ethics, ethical_ground_truths, survival_rate, filename="experiment_results.json"):
     data_to_save = {

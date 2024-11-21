@@ -18,9 +18,8 @@ import pyro
 import torch.multiprocessing as mp
 
 from loops import main_loop, generational_driver
-from logging_utils import save_experiment_results
-from plotting import plot_progress
-
+from utils.plotting import plot_loss_and_survival, plot_survival_and_ethics, plot_loss_and_ethics
+from utils.logging import save_experiment_results
 
 import sys
 sys.path.insert(0, '/scratch/cluster/dylantw/Risto/init/bnn-neat-python')
@@ -94,5 +93,9 @@ if __name__ == "__main__":
 
     save_experiment_results(result, loss, survival, ethics, ethical_ground_truths, survival_rate)
 
-    plot_progress(average_loss_per_gen, survival_counts, average_ethical_score_per_gen)
+    # Generate and save individual plots
+    plot_loss_and_survival(average_loss_per_gen, survival_counts, filename='loss_and_survival_plot.png')
+    plot_survival_and_ethics(survival_counts, average_ethical_score_per_gen, filename='survival_and_ethics_plot.png')
+    plot_loss_and_ethics(average_loss_per_gen, average_ethical_score_per_gen, filename='loss_and_ethics_plot.png')
+
     print("done")
