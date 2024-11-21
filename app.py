@@ -27,6 +27,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 client = OpenAI()
 
+
 def normalize_string(s):
     # Remove leading/trailing whitespace
     s = s.strip()
@@ -73,7 +74,7 @@ def extract_choices_and_intro(text):
 
 model = "gpt-4o-mini"
 
-def update_bnn_history(response, agent, bnn_history, max_length, temperature, top_p, ethics_score=0, death=False):
+def update_bnn_history(response, agent, bnn_history, max_length, temperature, top_p, global_counter, ethics_score=0, death=False):
     """
     This function captures and stores information about a prompt-response interaction between an agent and the AI.
     It retrieves both the text embeddings and emotional scores for the prompt and response, appending this data to
@@ -382,7 +383,7 @@ def adjust_rates_proportional(config, neat_iteration, total_iterations, initial_
         print(f"Adjusted {rate_name}: {new_rate:.4f}")
 
 
-def main_loop(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, strong_bnn, config, ground_truth_label_list):
+def main_loop(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, strong_bnn, config, ground_truth_label_list, global_counter):
     # Set a counter for the loop
     loop_counter = 0
     max_loops = 50
@@ -422,16 +423,16 @@ def main_loop(votes, max_tokens, temperature, top_p, danger, shared_history, bnn
         # Get ground truth labels
         ground_truth_labels = ground_truth(storyteller_response)
         print("Ground Truth Labels: ", ground_truth_labels)
-        ground_truth_dict = {f"{global_counter}": ground_truth_labels} 
+        ground_truth_dict = {global_counter: ground_truth_labels} 
 
         ground_truth_label_list.append(ground_truth_dict)
 
         ethical_scores_list = ethical_scores(storyteller_response)
         print("Normalized Ethical Scores: ", ethical_scores_list)
 
-        ethical_scores_dict = {f"{global_counter}": ethical_scores_list)
+        ethical_scores_dict = {global_counter: ethical_scores_list}
 
-        all_choices_ethics.append(ethical_scores_list)  # Track normalized ethical scores
+        all_choices_ethics.append(ethical_scores_dict)  # Track normalized ethical scores
         print("Ethical Scores List: ", all_choices_ethics)
 
 
@@ -441,7 +442,7 @@ def main_loop(votes, max_tokens, temperature, top_p, danger, shared_history, bnn
         #print("Intro: ", intro, "\nChoices: ", choices, " len(choices) = ", len(choices))
 
         # Update the histories
-        bnn_history = update_bnn_history(response=storyteller_response, agent="Storyteller", bnn_history=bnn_history, max_length=max_tokens, temperature=temperature, top_p=top_p)
+        bnn_history = update_bnn_history(response=storyteller_response, agent="Storyteller", bnn_history=bnn_history, max_length=max_tokens, temperature=temperature, top_p=top_p, global_counter=global_counter)
         shared_history.append({"role": "assistant", "content": "storyteller: " + storyteller_response})
 
         # Step 2: Agent Strong responds based on the storyteller's response
@@ -462,7 +463,7 @@ def main_loop(votes, max_tokens, temperature, top_p, danger, shared_history, bnn
         #agent_strong_response = next(respond_strong(strong_agent_input, strong_system, max_tokens, temperature, top_p, shared_history))
 
         # Update the histories
-        bnn_history = update_bnn_history(response=strong_agent_response, agent="Strong", bnn_history=bnn_history, max_length=max_tokens, temperature=temperature, top_p=top_p, ethics_score=ethics_score)
+        bnn_history = update_bnn_history(response=strong_agent_response, agent="Strong", bnn_history=bnn_history, max_length=max_tokens, temperature=temperature, top_p=top_p, ethics_score=ethics_score, global_counter=global_counter)
         shared_history.append({"role": "user", "content": "strong agent: " + strong_agent_response})
 
         chosen_ethics.append(ethics_score)
@@ -480,7 +481,7 @@ def main_loop(votes, max_tokens, temperature, top_p, danger, shared_history, bnn
         did_agent_survive = ground_truth_labels[best_choice]
         
         if did_agent_survive == 0:
-            bnn_history = update_bnn_history(response="Agent Died. Game Over", agent="Storyteller", bnn_history=bnn_history, max_length=max_tokens, temperature=temperature, top_p=top_p, death=True)
+            bnn_history = update_bnn_history(response="Agent Died. Game Over", agent="Storyteller", bnn_history=bnn_history, max_length=max_tokens, temperature=temperature, top_p=top_p, global_counter=global_counter, death=True)
             combined_responses += f"Storyteller: {storyteller_response} (Exit Code)\n"
             print("GAME OVER")
             print(f"Survived {loop_counter} Rounds")
@@ -524,9 +525,9 @@ def main_loop(votes, max_tokens, temperature, top_p, danger, shared_history, bnn
     #print("\n shared_history: ", shared_history)
         
     # Return the combined responses (either complete after 50 loops or if the exit code was received)
-    return combined_responses, strong_bnn, bnn_history, ground_truth_label_list, loss_history, loop_counter, chosen_ethics, all_choices_ethics
+    return combined_responses, strong_bnn, bnn_history, ground_truth_label_list, loss_history, loop_counter, chosen_ethics, all_choices_ethics, global_counter
 
-def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, strong_bnn, config, num_gens, neat_trainer):
+def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, strong_bnn, config, num_gens, neat_trainer, global_counter):
     pyro.clear_param_store()
     config_path = "config-feedforward"
     counter = 1
@@ -542,7 +543,7 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
         print("Ethical Ground Truths: ", ethical_ground_truths)
         # Run a single game
         print("Counter: ", counter)
-        result, strong_bnn, bnn_history, ground_truth_label_list, loss_history, rounds_survived, chosen_ethics, all_choices_ethics = main_loop(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, strong_bnn, config, ground_truth_label_list)
+        result, strong_bnn, bnn_history, ground_truth_label_list, loss_history, rounds_survived, chosen_ethics, all_choices_ethics, global_counter = main_loop(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, strong_bnn, config, ground_truth_label_list, global_counter)
         
         rounds_survived_history[f"Game {counter+1}"] = rounds_survived
         generational_history.append(result)
@@ -691,7 +692,7 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
 
 
 
-    return generational_history, gen_loss_history, rounds_survived_history, gen_ethical_history, ethical_ground_truths
+    return generational_history, gen_loss_history, rounds_survived_history, gen_ethical_history, ethical_ground_truths, ground_truth_label_list
 
 
 if __name__ == "__main__":
@@ -725,8 +726,11 @@ if __name__ == "__main__":
     shared_history = []
     bnn_history = []
     num_gens = 4
+
+    global_counter = 0
+
     # Call the loop logic directly without Gradio
-    result, loss, survival, ethics, ethical_ground_truths = generational_driver(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, strong_bnn, config, num_gens, neat_trainer)
+    result, loss, survival, ethics, ethical_ground_truths, survival_ground_truths = generational_driver(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, strong_bnn, config, num_gens, neat_trainer, global_counter)
     print("RESULT: ", result)  # You can save it or print the result
     print("LOSS: ", loss)
     print("SVI DECISION ETHICS: ", ethics)

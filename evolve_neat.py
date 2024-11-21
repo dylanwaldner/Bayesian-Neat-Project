@@ -52,7 +52,7 @@ def compute_loss(predictions, expected_outputs, device):
     return loss.item()
 
 
-def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_labels, ethical_ground_truths, device):
+def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_label_list, all_choices_ethics, device):
     # Reset the BNN's input matrix and last update index
     bnn.input_matrix = None
     bnn.last_update_index = 0
@@ -64,17 +64,30 @@ def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_labels, ethic
     decision_history = []
     ethical_score_history = []
 
-    # Get indices where the last entry is from the Storyteller
-    decision_indices = [idx for idx, entry in enumerate(bnn_history) if entry['agent'] == 'Storyteller']
+    # Create mappings from id to ground truth labels and ethical scores
+    ground_truth_label_map = {k: v for d in ground_truth_label_list for k, v in d.items()}
+    ethical_score_map = {k: v for d in all_choices_ethics for k, v in d.items()}
 
-    print("Length of Decision Indices: ", len(decision_indices))
-    print("Length of Ground Truth Labels: ", len(ground_truth_labels))
-    print("Length of Ethical Ground Truths: ", len(ethical_ground_truths))
+    # Get entries where the agent is 'Storyteller' along with their indices
+    storyteller_entries = [(idx, entry) for idx, entry in enumerate(bnn_history) if entry['agent'] == 'Storyteller']
 
-    # Loop over decision points using enumerate to get label indices
-    for i, idx in enumerate(decision_indices):
+    print("Number of Storyteller Entries: ", len(storyteller_entries))
+    print("Number of Ground Truth Labels: ", len(ground_truth_label_map))
+    print("Number of Ethical Score Entries: ", len(ethical_score_map))
+
+    # Loop over storyteller entries
+    for idx, entry in storyteller_entries:
+        entry_id = entry['id']  # Retrieve the 'id' from the bnn_history entry
+
+        # Retrieve the ground truth labels and ethical scores using the 'id'
+        expected_output = ground_truth_label_map.get(entry_id)
+        ethical_scores = ethical_score_map.get(entry_id)
+
+        if expected_output is None or ethical_scores is None:
+            print(f"Warning: No ground truth data found for id {entry_id}")
+            continue  # Skip this entry if data is missing
+
         # Prepare the expected output tensor
-        expected_output = ground_truth_labels[i]
         expected_output_tensor = torch.tensor(expected_output, dtype=torch.float32, device=device)
 
         # Perform batched forward passes with Monte Carlo sampling
@@ -85,17 +98,17 @@ def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_labels, ethic
 
         # Compute loss for the current time step
         loss = compute_loss(predictions_mean, expected_output_tensor, device)
-        total_loss += loss
+        total_loss += loss.item()
 
         # Record the decision made by the genome at this time step
         chosen_action = torch.argmax(predictions_mean).item()
         decision_history.append(chosen_action)
 
         # Get the ethical score corresponding to the chosen action
-        ethical_score = ethical_ground_truths[i][chosen_action]
+        ethical_score = ethical_scores[chosen_action]
         ethical_score_history.append(ethical_score)
 
-    num_decisions = len(decision_indices)
+    num_decisions = len(decision_history)
     if num_decisions > 0:
         average_loss = total_loss / num_decisions
     else:
@@ -127,15 +140,6 @@ def evaluate_genome_remote(genome_id, genome, config, bnn_history, ground_truth_
             }
             for entry in bnn_history
         ]
-        ground_truth_labels_device = torch.tensor(
-            ground_truth_labels, dtype=torch.float32, device=device
-        )
-
-        print([len(item) for item in ethical_ground_truths])
-
-        ethical_ground_truths_device = torch.tensor(
-            ethical_ground_truths, dtype=torch.float32, device=device
-        )
 
         # Initialize model
         bnn = BayesianNN(genome, config, attention_layers=attention_layers).to(device)
@@ -152,7 +156,7 @@ def evaluate_genome_remote(genome_id, genome, config, bnn_history, ground_truth_
 
         # Evaluate fitness
         fitness = evaluate_genome(
-            genome, config, bnn, bnn_history_device, ground_truth_labels_device, ethical_ground_truths_device, device
+            genome, config, bnn, bnn_history_device, ground_truth_labels, ethical_ground_truths, device
         )
 
         end_time = time.time()
