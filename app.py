@@ -798,7 +798,7 @@ if __name__ == "__main__":
     plt.title('Progress of Survival, Loss, and Ethical Scores Across Generations')
 
     # Save the plot
-    plt.savefig('survival_loss_ethical_progress_logging_test_02.png')
-    print("Plot saved as 'survival_loss_ethical_progress_logging_test_02.png'")
+    plt.savefig('survival_loss_ethical_progress_logging_test_01.png')
+    print("Plot saved as 'survival_loss_ethical_progress_logging_test_01.png'")
     plt.close()
     print("done")
