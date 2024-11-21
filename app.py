@@ -679,8 +679,8 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
     print("\n--- Starting Testing Phase: 15 Games Without Optimization ---\n")
     for test_game in range(1, 16):  # 15 games
         print(f"Test Game {test_game}")
-        result, strong_bnn, bnn_history, ground_truth_label_list, loss_history, rounds_survived, chosen_ethics, all_choices_ethics = main_loop(
-            votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, strong_bnn, config, ground_truth_label_list
+        result, strong_bnn, bnn_history, ground_truth_label_list, loss_history, rounds_survived, chosen_ethics, all_choices_ethics, global_counter = main_loop(
+            votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, strong_bnn, config, ground_truth_label_list, global_counter
         )
 
         # Append results for analysis

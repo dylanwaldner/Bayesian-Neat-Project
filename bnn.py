@@ -257,8 +257,14 @@ class BayesianNN(nn.Module):
         """
         return self.connections
 
-    def update_matrix(self, bnn_history, current_index, device):
-        current_embedding = torch.tensor(bnn_history[current_index]["response_embedding"], device=device)
+    def update_matrix(self, bnn_history, current_index=None, device=None):
+        if current_index is None:
+            current_index = len(bnn_history) - 1
+
+        if device is None:
+            device = torch.device("cuda")
+
+        current_embedding = bnn_history[current_index]["response_embedding"].clone().detach().to(device)
 
         agent_mapping = {
             "Storyteller": torch.tensor([1, 0], device=device),
@@ -362,7 +368,7 @@ class BayesianNN(nn.Module):
     def forward(self, bnn_history, current_index=None, num_samples=1, device=None):
         # Retrieve the device from the model's parameters
         if device is None:
-            device = torch.device("cpu")  # Default to CPU if device is not provided
+            device = torch.device("cuda")  # Default to CPU if device is not provided
 
         if current_index is None:
             current_index = len(bnn_history) - 1

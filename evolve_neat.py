@@ -98,7 +98,7 @@ def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_label_list, a
 
         # Compute loss for the current time step
         loss = compute_loss(predictions_mean, expected_output_tensor, device)
-        total_loss += loss.item()
+        total_loss += loss
 
         # Record the decision made by the genome at this time step
         chosen_action = torch.argmax(predictions_mean).item()
@@ -122,7 +122,7 @@ def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_label_list, a
 
     return fitness
 
-@ray.remote(num_gpus=0.2)
+@ray.remote(num_gpus=0.1)
 def evaluate_genome_remote(genome_id, genome, config, bnn_history, ground_truth_labels, attention_layers, ethical_ground_truths):
     device = torch.device('cuda')
     #torch.cuda.set_device(device)
