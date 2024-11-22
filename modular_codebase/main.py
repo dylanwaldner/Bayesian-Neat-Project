@@ -72,7 +72,7 @@ if __name__ == "__main__":
     votes = {'strong': 0, 'weak': 10} 
     shared_history = []
     bnn_history = []
-    num_gens = 4
+    num_gens = 2
 
     # Call the loop logic directly without Gradio
     result, loss, survival, ethics, ethical_ground_truths, survival_ground_truths = generational_driver(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, strong_bnn, config, num_gens, neat_trainer)

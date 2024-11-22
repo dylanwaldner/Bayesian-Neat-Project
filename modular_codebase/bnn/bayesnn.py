@@ -32,6 +32,7 @@ class BayesianNN(nn.Module):
         self.optimizer = Adam({"lr": lr})
         self.svi = SVI(self.model, self.guide, self.optimizer, loss=Trace_ELBO())
         self.model_output = None  # Add this line to initialize the attribute
+        self.current_index = None
 
         # Load the attention layers if provided
         if attention_layers:
@@ -232,8 +233,8 @@ class BayesianNN(nn.Module):
             dictionary = bnn_history[i]
 
             row = torch.cat([
-                agent_mapping[dictionary["agent"]],
-                dictionary["response_embedding"].clone().detach().to(device)
+                agent_mapping[dictionary["agent"]].clone().detach().float(),
+                torch.tensor(dictionary["response_embedding"], device=device),
                 torch.tensor([dictionary["emotional_and_ethical_score"]], device=device),
                 torch.tensor([dictionary["environment_danger_score"]], device=device),
                 torch.tensor([dictionary["survived"]], device=device),
@@ -324,7 +325,10 @@ class BayesianNN(nn.Module):
             device = torch.device("cuda")  # Default to CPU if device is not provided
 
         if current_index is None:
-            current_index = len(bnn_history) - 1
+            if self.current_index is not None:
+                current_index = self.current_index
+            if self.current_index is None:
+                current_index = len(bnn_history) - 1
 
         # Ensure self.input_matrix contains the full history only once
         if len(bnn_history) > self.last_update_index:
@@ -336,13 +340,8 @@ class BayesianNN(nn.Module):
         masked_input = self.input_matrix * mask  # Shape: (full_sequence_length, input_size)
 
         # Slice masked_input based on current_index if provided
-        if current_index is not None:
-            # Only use rows up to current_index
-            relevant_input = masked_input[:current_index + 1, :]  # Shape: (sequence_length, input_size)
-            mask = mask[:current_index + 1, :]
-        else:
-            # Use the entire matrix if current_index is None (e.g., for SVI)
-            relevant_input = masked_input  # Shape: (full_sequence_length, input_size)
+        relevant_input = masked_input[:current_index + 1, :]  # Shape: (sequence_length, input_size)
+        mask = mask[:current_index + 1, :]
 
         # Dynamically determine sequence_length and input_size
         sequence_length, input_size = relevant_input.shape
@@ -551,26 +550,15 @@ class BayesianNN(nn.Module):
         if len(bnn_history) > self.last_update_index:
             self.update_matrix(bnn_history)
 
+        self.current_index = len(bnn_history) - 1
+
         agent_mapping = {
             "Storyteller": torch.tensor([1, 0], device=device),
             "Strong": torch.tensor([0, 1], device=device),
-            # "Weak": torch.tensor([0, 0, 1], device=device)  # Uncomment if needed
         }
 
-        rows = []
-        for entry in bnn_history:
-            row = torch.cat([
-                agent_mapping[entry["agent"]].clone().detach().float(),
-                torch.tensor(entry["response_embedding"], dtype=torch.float32, device=device),
-                torch.tensor([entry["emotional_and_ethical_score"]], dtype=torch.float32, device=device),
-                torch.tensor([entry["environment_danger_score"]], dtype=torch.float32, device=device),
-                torch.tensor([entry["survived"]], dtype=torch.float32, device=device),
-                torch.tensor([0.0], dtype=torch.float32, device=device)  # Placeholder for relevance score
-            ])
-            rows.append(row)
-        
         # Stack rows into a 2D tensor and move to device
-        x_data = torch.stack(rows[-1:]).to(device)  # Only take the last row to keep shape [1, 7686]
+        x_data = torch.empty((1, self.input_size), device=device).fill_(-1)
         y_data = torch.tensor(ground_truth, dtype=torch.float32).to(device)
 
         #print("svi_step - x_data shape:", x_data.shape)
@@ -587,6 +575,8 @@ class BayesianNN(nn.Module):
             print("ValueError in svi_step:", e)
             print("Shapes at error - x_data:", x_data.shape, "y_data:", y_data.shape)
             raise
+
+        self.current_index = None
 
         choice_probabilities = torch.sigmoid(self.model_output)
 
