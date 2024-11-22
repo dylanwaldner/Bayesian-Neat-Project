@@ -31,6 +31,7 @@ class BayesianNN(nn.Module):
 
         self.optimizer = Adam({"lr": lr})
         self.svi = SVI(self.model, self.guide, self.optimizer, loss=Trace_ELBO())
+        self.model_output = None  # Add this line to initialize the attribute
 
         # Load the attention layers if provided
         if attention_layers:
@@ -232,7 +233,7 @@ class BayesianNN(nn.Module):
 
             row = torch.cat([
                 agent_mapping[dictionary["agent"]],
-                torch.tensor(dictionary["response_embedding"], device=device),
+                dictionary["response_embedding"].clone().detach().to(device)
                 torch.tensor([dictionary["emotional_and_ethical_score"]], device=device),
                 torch.tensor([dictionary["environment_danger_score"]], device=device),
                 torch.tensor([dictionary["survived"]], device=device),
@@ -465,6 +466,8 @@ class BayesianNN(nn.Module):
         with pyro.plate("data", len(x_data)):
             logits = self.forward(x_data).to(device)  # Ensure logits are on the device
 
+            self.model_output = logits.detach()
+
             # Ensure logits and y_data have compatible shapes
             if logits.shape[-1] == 1:
                 logits = logits.squeeze(-1)
@@ -585,7 +588,9 @@ class BayesianNN(nn.Module):
             print("Shapes at error - x_data:", x_data.shape, "y_data:", y_data.shape)
             raise
 
-        return loss
+        choice_probabilities = torch.sigmoid(self.model_output)
+
+        return loss, choice_probabilities
 
     def get_optimized_parameters(self):
         optimized_params = {}

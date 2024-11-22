@@ -74,10 +74,8 @@ if __name__ == "__main__":
     bnn_history = []
     num_gens = 4
 
-    global_counter = 0
-
     # Call the loop logic directly without Gradio
-    result, loss, survival, ethics, ethical_ground_truths, survival_ground_truths = generational_driver(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, strong_bnn, config, num_gens, neat_trainer, global_counter)
+    result, loss, survival, ethics, ethical_ground_truths, survival_ground_truths = generational_driver(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, strong_bnn, config, num_gens, neat_trainer)
     print("RESULT: ", result)  # You can save it or print the result
     print("LOSS: ", loss)
     print("SVI DECISION ETHICS: ", ethics)
