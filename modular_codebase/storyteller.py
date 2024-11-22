@@ -1,4 +1,5 @@
 from utils.text_utils import extract_choices_and_intro
+from utils.text_generation import generate_text
 
 def respond_storyteller(
     message,

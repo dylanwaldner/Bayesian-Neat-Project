@@ -4,7 +4,7 @@
 from .text_utils import normalize_string, trim_response, extract_choices_and_intro
 
 # Import specific utilities from logging.py
-from .logging import save_experiment_results  # Example: Replace with actual function/class names in logging.py
+from .utils_logging import save_experiment_results  # Example: Replace with actual function/class names in logging.py
 
 # Import plotting utilities
 from .plotting import plot_loss_and_survival, plot_survival_and_ethics, plot_loss_and_ethics

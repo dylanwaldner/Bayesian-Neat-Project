@@ -12,7 +12,7 @@ import time
 import random
 import pytest
 import sys
-from bnn import BayesianNN
+from bnn.bayesnn import BayesianNN
 from joblib import Parallel, delayed
 import torch.multiprocessing as mp
 

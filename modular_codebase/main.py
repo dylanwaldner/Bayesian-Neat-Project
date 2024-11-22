@@ -1,4 +1,12 @@
 import os
+import sys
+
+# Print the current working directory and sys.path
+print("Current Working Directory:", os.getcwd())
+print("Python Path:", sys.path)
+
+# Add the current directory to sys.path explicitly
+sys.path.insert(0, os.getcwd())
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:False"
 
 import ray
@@ -6,11 +14,8 @@ import json
 import torch
 import re
 
-import bnn
-from bnn import BayesianNN
-from evolve_neat import NeatEvolution 
-from emotion_rate import emotion_rating, ground_truth, ethical_scores 
-from openai import OpenAI
+import bnn.bayesnn
+from bnn.bayesnn import BayesianNN
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -19,7 +24,11 @@ import torch.multiprocessing as mp
 
 from loops import main_loop, generational_driver
 from utils.plotting import plot_loss_and_survival, plot_survival_and_ethics, plot_loss_and_ethics
-from utils.logging import save_experiment_results
+from utils.utils_logging import save_experiment_results
+from neat.neat_evolution import NeatEvolution
+from utils.text_generation import generate_text
+from utils.text_utils import normalize_string, trim_response, extract_choices_and_intro
+from bnn.bnn_utils import update_bnn_history
 
 import sys
 sys.path.insert(0, '/scratch/cluster/dylantw/Risto/init/bnn-neat-python')
@@ -28,8 +37,6 @@ import bnn_neat
 from bnn_neat.genome import DefaultGenome
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-client = OpenAI()
 
 model = "gpt-4o-mini"
 
