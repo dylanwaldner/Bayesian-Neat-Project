@@ -150,20 +150,8 @@ def update_bnn_history(response, agent, bnn_history, max_length, temperature, to
         #print(len(response_embedding))
 
         if death:
-            response_embedding.extend([-1] * 1536 * 4)
             if len(bnn_history) >= 1:
                 bnn_history[-1]["survived"] = 0
-                #bnn_history[-2]["survived"] = 0
-            environment_danger_score = emotion_rating(response, agent, max_length, 0.1, top_p)
-            bnn_history.append({
-                "id": global_counter,
-                "agent": agent,
-                "response": response,
-                "response_embedding": response_embedding,
-                "emotional_and_ethical_score": 0,
-                "environment_danger_score": environment_danger_score,
-                "survived": -1
-            })
         else:
             environment_danger_score = emotion_rating(response, agent, max_length, 0.1, top_p)
             bnn_history.append({

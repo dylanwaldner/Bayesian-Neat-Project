@@ -7,6 +7,11 @@ from utils.text_generation import generate_text
 from utils.text_utils import normalize_string, trim_response, extract_choices_and_intro
 from bnn.bnn_utils import update_bnn_history
 
+import torch
+import json
+
+import numpy as np
+
 def main_loop(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, strong_bnn, config, ground_truth_label_list, global_counter):
     # Set a counter for the loop
     loop_counter = 0
