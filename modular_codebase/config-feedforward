@@ -9,11 +9,11 @@ reset_on_extinction   = True
 # Activation and aggregation functions
 activation_default      = relu
 activation_mutate_rate  = 0.1
-activation_options      = relu sigmoid tanh
+activation_options      = relu, sigmoid, tanh
 
 aggregation_default     = sum
-aggregation_mutate_rate = 0.0
-aggregation_options     = sum
+aggregation_mutate_rate = 0.1
+aggregation_options     = sum, product, max, min, mean
 
 # Bias configuration
 bias_mu_init_mean       = 0.0

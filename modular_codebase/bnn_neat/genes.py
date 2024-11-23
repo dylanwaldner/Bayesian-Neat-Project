@@ -84,8 +84,8 @@ class DefaultNodeGene(BaseGene):
                         FloatAttribute('bias_sigma'),
                         FloatAttribute('response_mu'),
                         FloatAttribute('response_sigma'),
-                        StringAttribute('activation', options=''),
-                        StringAttribute('aggregation', options='')]
+                        StringAttribute('activation', options='relu, sigmoid, tanh'),
+                        StringAttribute('aggregation', options='sum, product, max, min, mean')]
 
     def __init__(self, key):
         assert isinstance(key, int), f"DefaultNodeGene key must be an int, not {key!r}"

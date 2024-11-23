@@ -6,10 +6,14 @@ import torch.nn.functional as F
 import pyro
 import pyro.distributions as dist
 from pyro.infer import SVI, Trace_ELBO
+import pyro.infer
 from pyro.optim import Adam
 import numpy as np
 import sys
 import bnn_neat
+from bnn.bnn_utils import get_activation_function, get_aggregation_function
+from bnn.attention import compute_attention
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -23,16 +27,19 @@ class BayesianNN(nn.Module):
         self.connections = {}  # To store connections with their properties
         self.nodes = {}        # To store node information if needed
 
-        input_size = 7686
+        self.input_size = 7686
 
-        self.query_proj = nn.Linear(input_size, input_size).to(device)
-        self.key_proj = nn.Linear(input_size, input_size).to(device)
-        self.value_proj = nn.Linear(input_size, input_size).to(device)
+        self.dropout = nn.Dropout(p=0.1)
+
+        self.query_proj = nn.Linear(self.input_size, self.input_size).to(device)
+        self.key_proj = nn.Linear(self.input_size, self.input_size).to(device)
+        self.value_proj = nn.Linear(self.input_size, self.input_size).to(device)
 
         self.optimizer = Adam({"lr": lr})
         self.svi = SVI(self.model, self.guide, self.optimizer, loss=Trace_ELBO())
         self.model_output = None  # Add this line to initialize the attribute
         self.current_index = None
+        self.bnn_history = None
 
         # Load the attention layers if provided
         if attention_layers:
@@ -181,9 +188,17 @@ class BayesianNN(nn.Module):
             if node_id < 0:
                 continue  # Input nodes may not have biases
 
+            node_gene = self.genome.nodes[node_id]
+
+            # Map activation and aggregation function names to actual functions
+            activation_func = get_activation_function(node_gene.activation)
+            aggregation_func = get_aggregation_function(node_gene.aggregation)
+
             self.nodes[node_id] = {
                 'bias_mu': getattr(self.genome.nodes[node_id], 'bias_mu', 0.0),
-                'bias_sigma': getattr(self.genome.nodes[node_id], 'bias_sigma', 1.0)
+                'bias_sigma': getattr(self.genome.nodes[node_id], 'bias_sigma', 1.0),
+                'activation_func': activation_func,
+                'aggregation_func': aggregation_func
             }
 
         # Define the weight matrices
@@ -322,64 +337,52 @@ class BayesianNN(nn.Module):
     def forward(self, bnn_history, current_index=None, num_samples=1, device=None):
         # Retrieve the device from the model's parameters
         if device is None:
-            device = torch.device("cuda")  # Default to CPU if device is not provided
+            device = torch.device("cuda")  # Default to cuda if device is not provided
 
         if current_index is None:
             if self.current_index is not None:
                 current_index = self.current_index
             if self.current_index is None:
                 current_index = len(bnn_history) - 1
+        else:
+            self.bnn_history = bnn_history
 
         # Ensure self.input_matrix contains the full history only once
         if len(bnn_history) > self.last_update_index:
-            self.update_matrix(bnn_history, current_index, device)
+            self.update_matrix(self.bnn_history, current_index, device)
 
-        # Prepare input matrix and apply masking
+        # Prepare input matrix and mask
         self.input_matrix = self.input_matrix.clone().detach().float().to(device)
         mask = (self.input_matrix != -1).float().to(device)
         masked_input = self.input_matrix * mask  # Shape: (full_sequence_length, input_size)
 
-        # Slice masked_input based on current_index if provided
+        # Slice input based on current_index if provided
         relevant_input = masked_input[:current_index + 1, :]  # Shape: (sequence_length, input_size)
         mask = mask[:current_index + 1, :]
 
-        # Dynamically determine sequence_length and input_size
         sequence_length, input_size = relevant_input.shape
 
-        # Use the last row of relevant_input as the query
-        query = self.query_proj(relevant_input[-1, :].unsqueeze(0).to(device))  # Shape: (1, input_size)
+        # Create storyteller mask
+        storyteller_mask = torch.tensor(
+            [entry['agent'] == "Storyteller" for entry in self.bnn_history[:current_index + 1]],
+            dtype=torch.bool,
+            device=device
+        )
 
-        # All rows in relevant_input are keys and values
-        keys = self.key_proj(relevant_input.to(device))     # Shape: (sequence_length, input_size)
-        values = self.value_proj(relevant_input.to(device)) # Shape: (sequence_length, input_size)
+        # Compute combined context vector
+        combined_context = compute_attention(
+            relevant_input,
+            self.query_proj,
+            self.key_proj,
+            self.value_proj,
+            self.dropout,
+            storyteller_mask,
+            scaling_factor=0.3,
+            device=device
+        )
 
-        # Compute attention scores and apply softmax
-        attention_scores = torch.matmul(query, keys.transpose(0, 1))  # Shape: (1, sequence_length)
-
-        # Compute attention mask
-        attention_mask = (mask.sum(dim=1) > 0).float().unsqueeze(0).to(device)  # Shape: (1, sequence_length)
-
-        # Create a boolean mask for positions to be masked out
-        attention_mask_bool = attention_mask == 0  # Shape: (1, sequence_length)
-
-        # Apply mask to attention_scores
-        attention_scores = attention_scores.masked_fill(attention_mask_bool, -1e9)
-
-
-        attention_weights = F.softmax(attention_scores, dim=-1)       # Shape: (1, sequence_length)
-
-        # Handle the case where all positions are masked out
-        if attention_mask.sum() == 0:
-            attention_weights = torch.zeros_like(attention_scores)
-        else:
-            attention_weights = F.softmax(attention_scores, dim=-1)  # Shape: (1, sequence_length)
-
-
-        # Compute context vector
-        context_vector = torch.matmul(attention_weights, values)      # Shape: (1, input_size)
-
-        # Expand context_vector for num_samples (MC samples)
-        context_vector = context_vector.expand(num_samples, -1)       # Shape: (num_samples, input_size)
+        # Expand for Monte Carlo samples
+        context_vector = combined_context.expand(num_samples, -1)
 
         # Initialize node activations using context vector for each input node
         node_activations = {}
@@ -426,8 +429,15 @@ class BayesianNN(nn.Module):
                     input_value = node_activations[in_node]  # Shape: (num_samples,)
                     incoming_values.append(weight * input_value)  # Shape: (num_samples,)
 
+            # Apply the node's aggregation function
             if incoming_values:
-                total_input = torch.stack(incoming_values, dim=0).sum(dim=0)  # Shape: (num_samples,)
+                stacked_values = torch.stack(incoming_values, dim=0)  # Shape: (num_incoming, num_samples)
+                aggregation_func = self.nodes[node_id].get('aggregation_func', torch.sum)
+                # Handle functions that return (values, indices), like max and min
+                if aggregation_func in [torch.max, torch.min]:
+                    total_input, _ = aggregation_func(stacked_values, dim=0)  # Shape: (num_samples,)
+                else:
+                    total_input = aggregation_func(stacked_values, dim=0)  # Shape: (num_samples,)
             else:
                 total_input = torch.zeros(num_samples, device=device)  # Shape: (num_samples,)
 
@@ -439,7 +449,7 @@ class BayesianNN(nn.Module):
             if node_id in self.output_nodes:
                 activation = total_input
             else:
-                activation_func = self.node_activation_funcs.get(node_id, torch.relu)
+                activation_func = self.nodes[node_id].get('activation_func', torch.relu)
                 activation = activation_func(total_input)
 
             node_activations[node_id] = activation  # Shape: (num_samples,)
@@ -551,6 +561,7 @@ class BayesianNN(nn.Module):
             self.update_matrix(bnn_history)
 
         self.current_index = len(bnn_history) - 1
+        self.bnn_history = bnn_history
 
         agent_mapping = {
             "Storyteller": torch.tensor([1, 0], device=device),
@@ -617,3 +628,45 @@ class BayesianNN(nn.Module):
             weight_sample = pyro.sample(f"w_{conn_key}", weight_dist).to(device)
             sampled_weights[conn_key] = weight_sample
         return sampled_weights
+
+    def compute_elbo_loss(self, bnn_history, ground_truth_labels, current_index=None, num_samples=1, device=None):
+        """
+        Computes the ELBO loss without performing optimization.
+
+        Parameters:
+        -----------
+        bnn_history : list
+            The history of interactions to be used as input to the model.
+        ground_truth_labels : torch.Tensor
+            The true labels corresponding to the data in bnn_history.
+        current_index : int, optional
+            The current index in the bnn_history to consider for the forward pass.
+        num_samples : int, optional
+            The number of Monte Carlo samples to use in the forward pass.
+        device : torch.device, optional
+            The device to perform computations on.
+
+        Returns:
+        --------
+        float
+            The computed ELBO loss value.
+        torch.Tensor
+            The model's predictions (probabilities) for the given inputs.
+        """
+        if device is None:
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        # Ensure the model is in evaluation mode
+        self.eval()
+
+        # Use Pyro's Trace_ELBO to compute the loss
+        elbo = pyro.infer.Trace_ELBO()
+        loss = elbo.differentiable_loss(self.model, self.guide, bnn_history, ground_truth_labels,
+                                        current_index=current_index, num_samples=num_samples, device=device)
+
+        # Get predictions from the forward pass
+        with torch.no_grad():
+            predictions = self.forward(bnn_history, current_index=current_index, num_samples=num_samples, device=device)
+            probabilities = torch.sigmoid(predictions)
+
+        return loss.item(), probabilities

@@ -114,3 +114,23 @@ def update_bnn_history(response, agent, bnn_history, max_length, temperature, to
 
     return bnn_history
 
+
+def get_activation_function(name):
+    activation_functions = {
+        'relu': torch.relu,
+        'sigmoid': torch.sigmoid,
+        'tanh': torch.tanh,
+        # Add other activation functions if needed
+    }
+    return activation_functions.get(name, torch.relu)  # Default to ReLU if not found
+
+def get_aggregation_function(name):
+    aggregation_functions = {
+        'sum': torch.sum,
+        'product': torch.prod,
+        'mean': torch.mean,
+        'max': torch.max,
+        'min': torch.min,
+        # Add other aggregation functions if needed
+    }
+    return aggregation_functions.get(name, torch.sum)  # Default to sum if not found

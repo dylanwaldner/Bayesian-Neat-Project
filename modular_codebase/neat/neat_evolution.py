@@ -35,22 +35,29 @@ class BayesianGenome(DefaultGenome):
 
     # Override methods if necessary to handle weight_mu and weight_sigma
 
-def compute_loss(predictions, expected_outputs, device):
-    # Ensure predictions and expected_outputs are on the same device
-    predictions = predictions.to(device).float()
-    expected_outputs = expected_outputs.to(device).float()
+def compute_elbo_loss(model_instance, bnn_history, ground_truth_labels, current_index=None, num_samples=1, device=None):
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Ensure predictions are in the right range
-    epsilon = 1e-7
-    predictions = torch.clamp(predictions, epsilon, 1 - epsilon)
+    # Ensure the model is in evaluation mode
+    model_instance.eval()
 
-    # Initialize BCELoss
-    criterion = nn.BCELoss()
+    # Update the model's internal state
+    if len(bnn_history) > model_instance.last_update_index:
+        model_instance.update_matrix(bnn_history)
 
-    # Compute BCE loss
-    loss = criterion(predictions, expected_outputs)
-    return loss.item()
+    model_instance.current_index = len(bnn_history) - 1 if current_index is None else current_index
+    model_instance.bnn_history = bnn_history
 
+    # Prepare dummy x_data and move ground_truth_labels to device
+    x_data = torch.empty((1, model_instance.input_size), device=device).fill_(-1)
+    y_data = ground_truth_labels.to(device)
+
+    # Use Pyro's Trace_ELBO to compute the loss
+    elbo = pyro.infer.Trace_ELBO()
+    loss = elbo.loss(model_instance.model, model_instance.guide, x_data, y_data)
+
+    return loss
 
 def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_label_list, all_choices_ethics, device):
     # Reset the BNN's input matrix and last update index
@@ -58,7 +65,7 @@ def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_label_list, a
     bnn.last_update_index = 0
 
     total_loss = 0.0
-    num_mc_samples = 3
+    num_entries = 0
 
     # Initialize lists to record decisions and ethical scores
     decision_history = []
@@ -71,13 +78,18 @@ def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_label_list, a
     # Get entries where the agent is 'Storyteller' along with their indices
     storyteller_entries = [(idx, entry) for idx, entry in enumerate(bnn_history) if entry['agent'] == 'Storyteller']
 
-    print("Number of Storyteller Entries: ", len(storyteller_entries))
-    print("Number of Ground Truth Labels: ", len(ground_truth_label_map))
-    print("Number of Ethical Score Entries: ", len(ethical_score_map))
+    print("Number of Storyteller Entries:", len(storyteller_entries))
+    print("Number of Ground Truth Labels:", len(ground_truth_label_map))
+    print("Number of Ethical Score Entries:", len(ethical_score_map))
+
+    if not storyteller_entries:
+        # No valid entries, set fitness to a default low value
+        genome.fitness = -float('inf')
+        return genome.fitness
 
     # Loop over storyteller entries
     for idx, entry in storyteller_entries:
-        entry_id = entry['id']  # Retrieve the 'id' from the bnn_history entry
+        entry_id = entry.get('id')  # Retrieve the 'id' from the bnn_history entry
 
         # Retrieve the ground truth labels and ethical scores using the 'id'
         expected_output = ground_truth_label_map.get(entry_id)
@@ -89,32 +101,41 @@ def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_label_list, a
 
         # Prepare the expected output tensor
         expected_output_tensor = torch.tensor(expected_output, dtype=torch.float32, device=device)
+        expected_output_tensor = expected_output_tensor.unsqueeze(0)  # Add batch dimension if necessary
 
-        # Perform batched forward passes with Monte Carlo sampling
-        predictions = bnn.forward(bnn_history, current_index=idx, num_samples=num_mc_samples, device=device)
-
-        # Average predictions over Monte Carlo samples
-        predictions_mean = predictions.mean(dim=0)
-
-        # Compute loss for the current time step
-        loss = compute_loss(predictions_mean, expected_output_tensor, device)
+        # Compute ELBO loss for the current time step without optimization
+        loss = compute_elbo_loss(
+            bnn,
+            bnn_history[:idx + 1],  # Pass the history up to the current index
+            expected_output_tensor,
+            current_index=idx,
+            device=device
+        )
         total_loss += loss
+        num_entries += 1
+
+        # Perform a forward pass to get predictions
+        with torch.no_grad():
+            logits = bnn.forward(bnn_history[:idx + 1], current_index=idx, device=device)
+            probabilities = torch.sigmoid(logits)
 
         # Record the decision made by the genome at this time step
-        chosen_action = torch.argmax(predictions_mean).item()
+        chosen_action = torch.argmax(probabilities).item()
         decision_history.append(chosen_action)
 
         # Get the ethical score corresponding to the chosen action
         ethical_score = ethical_scores[chosen_action]
         ethical_score_history.append(ethical_score)
 
-    num_decisions = len(decision_history)
-    if num_decisions > 0:
-        average_loss = total_loss / num_decisions
+    if num_entries > 0:
+        average_loss = total_loss / num_entries
     else:
-        average_loss = 0.0  # Handle the case where there are no decision points
+        average_loss = float('inf')  # Set a high loss if no valid entries
 
     fitness = -average_loss  # Assuming lower loss is better
+
+    # Assign fitness to the genome
+    genome.fitness = fitness
 
     # Attach the decision and ethical score histories to the genome
     genome.decision_history = decision_history
@@ -125,21 +146,23 @@ def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_label_list, a
 @ray.remote(num_gpus=0.2)
 def evaluate_genome_remote(genome_id, genome, config, bnn_history, ground_truth_labels, attention_layers, ethical_ground_truths):
     device = torch.device('cuda')
-    #torch.cuda.set_device(device)
     device_id = torch.cuda.current_device()
     print(f"Genome {genome_id} is using GPU {device_id}")
 
     try:
         start_time = time.time()
 
-        # Move shared data to device
-        bnn_history_device = [
-            {
-                key: torch.tensor(value, device=device) if isinstance(value, (list, np.ndarray)) else value
-                for key, value in entry.items()
-            }
-            for entry in bnn_history
-        ]
+        bnn_history_device = []
+        for entry in bnn_history:
+            entry_device = {}
+            for key, value in entry.items():
+                if isinstance(value, torch.Tensor):
+                    entry_device[key] = value.to(device)
+                elif isinstance(value, (list, np.ndarray)):
+                    entry_device[key] = torch.tensor(value, device=device)
+                else:
+                    entry_device[key] = value
+            bnn_history_device.append(entry_device)
 
         # Initialize model
         bnn = BayesianNN(genome, config, attention_layers=attention_layers).to(device)

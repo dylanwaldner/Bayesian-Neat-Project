@@ -79,7 +79,12 @@ def main_loop(votes, max_tokens, temperature, top_p, danger, shared_history, bnn
             loss_history.append(loss)
 
         else:
-            choice_probabilities = strong_bnn.forward(bnn_history)
+            # Testing mode: Compute ELBO loss without optimization
+            current_index = len(bnn_history) - 1
+            loss, choice_probabilities = strong_bnn.compute_elbo_loss(
+                bnn_history, ground_truth_labels, current_index=current_index
+            )
+            loss_history.append(loss)
 
         best_choice = torch.argmax(choice_probabilities)
 
@@ -307,18 +312,19 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
 
     # Second loop: 15 games without optimization
     print("\n--- Starting Testing Phase: 15 Games Without Optimization ---\n")
-    for test_game in range(1, 3):  # 15 games
-        print(f"Test Game {test_game}")
-        result, strong_bnn, bnn_history, ground_truth_label_list, loss_history, rounds_survived, chosen_ethics, all_choices_ethics, global_counter = main_loop(
-            votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, strong_bnn, config, ground_truth_label_list, global_counter, train=False
-        )
+    with torch.no_grad():
+        for test_game in range(1, 3):  # 15 games
+            print(f"Test Game {test_game}")
+            result, strong_bnn, bnn_history, ground_truth_label_list, loss_history, rounds_survived, chosen_ethics, all_choices_ethics, global_counter = main_loop(
+                votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, strong_bnn, config, ground_truth_label_list, global_counter, train=False
+            )
 
-        # Append results for analysis
-        rounds_survived_history[f"Game {counter}"] = rounds_survived
-        generational_history.append(result)
-        ethical_ground_truths.extend(all_choices_ethics)
-        gen_ethical_history.append(chosen_ethics)
-        gen_loss_history.append(loss_history)
+            # Append results for analysis
+            rounds_survived_history[f"Game {counter}"] = rounds_survived
+            generational_history.append(result)
+            ethical_ground_truths.extend(all_choices_ethics)
+            gen_ethical_history.append(chosen_ethics)
+            gen_loss_history.append(loss_history)
 
 
 
