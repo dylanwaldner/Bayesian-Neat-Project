@@ -36,7 +36,7 @@ class BayesianNN(nn.Module):
         self.value_proj = nn.Linear(self.input_size, self.input_size).to(device)
 
         self.optimizer = Adam({"lr": lr})
-        self.svi = SVI(self.model, self.guide, self.optimizer, loss=Trace_ELBO())
+        self.svi = SVI(self.model, self.guide, self.optimizer, loss=Trace_ELBO(num_particles=4))
         self.model_output = None  # Add this line to initialize the attribute
         self.current_index = None
         self.bnn_history = None
@@ -335,6 +335,8 @@ class BayesianNN(nn.Module):
 
 
     def forward(self, bnn_history, current_index=None, num_samples=1, device=None):
+        torch.autograd.set_detect_anomaly(True)
+
         # Retrieve the device from the model's parameters
         if device is None:
             device = torch.device("cuda")  # Default to cuda if device is not provided
@@ -436,6 +438,11 @@ class BayesianNN(nn.Module):
                 # Handle functions that return (values, indices), like max and min
                 if aggregation_func in [torch.max, torch.min]:
                     total_input, _ = aggregation_func(stacked_values, dim=0)  # Shape: (num_samples,)
+
+                elif aggregation_func == torch.prod:
+                    # Clone the tensor before using torch.prod to avoid in-place modification errors
+                    total_input = aggregation_func(stacked_values.clone(), dim=0)  # Shape: (num_samples,)
+
                 else:
                     total_input = aggregation_func(stacked_values, dim=0)  # Shape: (num_samples,)
             else:
@@ -443,7 +450,7 @@ class BayesianNN(nn.Module):
 
             # Add bias
             bias = sampled_biases.get(node_id, torch.zeros(num_samples, device=device))
-            total_input += bias  # Shape: (num_samples,)
+            total_input = total_input + bias  # Shape: (num_samples,)
 
             # Apply activation function
             if node_id in self.output_nodes:
@@ -451,6 +458,12 @@ class BayesianNN(nn.Module):
             else:
                 activation_func = self.nodes[node_id].get('activation_func', torch.relu)
                 activation = activation_func(total_input)
+
+
+            # Check for NaNs
+            if torch.isnan(activation).any():
+                print(f"NaN detected in activation of node {node_id}")
+                raise ValueError("NaN detected in activation.")
 
             node_activations[node_id] = activation  # Shape: (num_samples,)
 
@@ -629,44 +642,45 @@ class BayesianNN(nn.Module):
             sampled_weights[conn_key] = weight_sample
         return sampled_weights
 
-    def compute_elbo_loss(self, bnn_history, ground_truth_labels, current_index=None, num_samples=1, device=None):
-        """
-        Computes the ELBO loss without performing optimization.
-
-        Parameters:
-        -----------
-        bnn_history : list
-            The history of interactions to be used as input to the model.
-        ground_truth_labels : torch.Tensor
-            The true labels corresponding to the data in bnn_history.
-        current_index : int, optional
-            The current index in the bnn_history to consider for the forward pass.
-        num_samples : int, optional
-            The number of Monte Carlo samples to use in the forward pass.
-        device : torch.device, optional
-            The device to perform computations on.
-
-        Returns:
-        --------
-        float
-            The computed ELBO loss value.
-        torch.Tensor
-            The model's predictions (probabilities) for the given inputs.
-        """
-        if device is None:
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    def compute_elbo_loss(self, bnn_history, ground_truth_labels, device=None):
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # Ensure the model is in evaluation mode
         self.eval()
 
-        # Use Pyro's Trace_ELBO to compute the loss
-        elbo = pyro.infer.Trace_ELBO()
-        loss = elbo.differentiable_loss(self.model, self.guide, bnn_history, ground_truth_labels,
-                                        current_index=current_index, num_samples=num_samples, device=device)
+        # Update bnn_history as a class attribute
+        if len(bnn_history) > self.last_update_index:
+            self.update_matrix(bnn_history)
 
-        # Get predictions from the forward pass
+        self.current_index = len(bnn_history) - 1
+        self.bnn_history = bnn_history
+
+        # Create dummy x_data and move ground_truth_labels to the correct device
+        x_data = torch.empty((1, self.input_size), device=device).fill_(-1)  # Dummy input tensor
+        y_data = ground_truth_labels.to(device)
+
+        # Print for debugging purposes (optional)
+        print("x_data shape:", x_data.shape)
+        print("y_data shape:", y_data.shape)
+
+        # Define the loss calculation
+        elbo = pyro.infer.Trace_ELBO(num_particles=4)
+
+        # Run ELBO loss computation
+        try:
+            loss = elbo.loss(self.model, self.guide, x_data, y_data)
+        except ValueError as e:
+            print("ValueError during loss computation:", e)
+            print("Shapes at error - x_data:", x_data.shape, "y_data:", y_data.shape)
+            raise
+
+        # Use `self.model_output` for predictions instead of recomputing
         with torch.no_grad():
-            predictions = self.forward(bnn_history, current_index=current_index, num_samples=num_samples, device=device)
-            probabilities = torch.sigmoid(predictions)
+            logits = self.model_output  # Use logits from the most recent model pass
+            probabilities = torch.sigmoid(logits)  # Convert logits to probabilities
 
-        return loss.item(), probabilities
+        # Reset the current index after computation
+        self.current_index = None
+
+        return loss, probabilities
+

@@ -1,4 +1,5 @@
 from emotion_rate import emotion_rating, ethical_scores, ground_truth
+import torch
 from utils.text_utils import normalize_string, trim_response, extract_choices_and_intro
 model = "gpt-4o-mini"
 from openai import OpenAI
@@ -123,6 +124,22 @@ def get_activation_function(name):
         # Add other activation functions if needed
     }
     return activation_functions.get(name, torch.relu)  # Default to ReLU if not found
+
+def safe_prod(input_tensor, dim=0):
+    # Add a small epsilon to avoid zero-product issues
+    epsilon = 1e-7
+    input_tensor = input_tensor + epsilon
+    # Debugging: Check for negative or NaN values
+    if torch.any(input_tensor <= 0):
+        print("Warning: Non-positive values detected in input_tensor of safe_prod:")
+        print(input_tensor)
+    if torch.isnan(input_tensor).any():
+        print("Warning: NaN values detected in input_tensor of safe_prod:")
+        print(input_tensor)
+    log_values = torch.log(input_tensor)
+    sum_log = torch.sum(log_values, dim=dim)
+    result = torch.exp(sum_log)
+    return result
 
 def get_aggregation_function(name):
     aggregation_functions = {

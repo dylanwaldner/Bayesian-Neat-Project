@@ -45,6 +45,7 @@ model = "gpt-4o-mini"
 if __name__ == "__main__":
     mp.set_start_method('spawn', force=True)
     ray.init()
+    print("Ray resources:", ray.cluster_resources())
 
     max_tokens = 10240
     temperature = 1.2

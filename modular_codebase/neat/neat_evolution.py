@@ -7,6 +7,7 @@ import traceback
 import numpy as np
 from math import ceil
 import torch
+print("Number of GPUs available:", torch.cuda.device_count())
 import torch.nn as nn
 import time
 import random
@@ -15,7 +16,8 @@ import sys
 from bnn.bayesnn import BayesianNN
 from joblib import Parallel, delayed
 import torch.multiprocessing as mp
-
+import pyro
+import pyro.infer
 import bnn_neat
 #from bnn_neat.checkpoint import Checkpointer
 from bnn_neat.config import Config
@@ -54,7 +56,7 @@ def compute_elbo_loss(model_instance, bnn_history, ground_truth_labels, current_
     y_data = ground_truth_labels.to(device)
 
     # Use Pyro's Trace_ELBO to compute the loss
-    elbo = pyro.infer.Trace_ELBO()
+    elbo = pyro.infer.Trace_ELBO(num_particles=4)
     loss = elbo.loss(model_instance.model, model_instance.guide, x_data, y_data)
 
     return loss
@@ -143,15 +145,25 @@ def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_label_list, a
 
     return fitness
 
-@ray.remote(num_gpus=0.2)
+@ray.remote(num_gpus=0.25)  # Each task uses 20% of a GPU
 def evaluate_genome_remote(genome_id, genome, config, bnn_history, ground_truth_labels, attention_layers, ethical_ground_truths):
-    device = torch.device('cuda')
-    device_id = torch.cuda.current_device()
-    print(f"Genome {genome_id} is using GPU {device_id}")
+    # Get the GPUs assigned to this task
+    cuda_visible_devices = os.environ.get('CUDA_VISIBLE_DEVICES')
+    print(f"Genome {genome_id} - CUDA_VISIBLE_DEVICES: {cuda_visible_devices}")
+
+    if cuda_visible_devices is None or cuda_visible_devices == '':
+        # No GPU assigned, fall back to CPU
+        device = torch.device('cpu')
+        print(f"Genome {genome_id} is using CPU")
+    else:
+        # Use the first visible GPU within this task
+        device = torch.device('cuda:0')
+        print(f"Genome {genome_id} is using device {device}")
 
     try:
         start_time = time.time()
 
+        # Move bnn_history to the assigned device
         bnn_history_device = []
         for entry in bnn_history:
             entry_device = {}
@@ -164,7 +176,7 @@ def evaluate_genome_remote(genome_id, genome, config, bnn_history, ground_truth_
                     entry_device[key] = value
             bnn_history_device.append(entry_device)
 
-        # Initialize model
+        # Initialize model on the assigned device
         bnn = BayesianNN(genome, config, attention_layers=attention_layers).to(device)
 
         # Log GPU memory usage after model initialization

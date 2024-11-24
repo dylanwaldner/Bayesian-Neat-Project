@@ -2,18 +2,18 @@
 fitness_criterion     = max
 fitness_threshold     = 1.0
 # Varied parameter
-pop_size              = 2
+pop_size              = 32
 reset_on_extinction   = True
 
 [DefaultGenome]
 # Activation and aggregation functions
-activation_default      = relu
+activation_default      = random
 activation_mutate_rate  = 0.1
-activation_options      = relu, sigmoid, tanh
+activation_options      = relu sigmoid tanh
 
-aggregation_default     = sum
+aggregation_default     = random
 aggregation_mutate_rate = 0.1
-aggregation_options     = sum, product, max, min, mean
+aggregation_options     = sum product max min mean
 
 # Bias configuration
 bias_mu_init_mean       = 0.0
