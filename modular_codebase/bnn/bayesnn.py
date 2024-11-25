@@ -657,6 +657,11 @@ class BayesianNN(nn.Module):
 
         # Create dummy x_data and move ground_truth_labels to the correct device
         x_data = torch.empty((1, self.input_size), device=device).fill_(-1)  # Dummy input tensor
+
+        # Ensure ground_truth_labels is a tensor
+        if isinstance(ground_truth_labels, list):
+            ground_truth_labels = torch.tensor(ground_truth_labels)
+
         y_data = ground_truth_labels.to(device)
 
         # Print for debugging purposes (optional)

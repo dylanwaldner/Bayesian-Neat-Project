@@ -82,7 +82,7 @@ def main_loop(votes, max_tokens, temperature, top_p, danger, shared_history, bnn
             # Testing mode: Compute ELBO loss without optimization
             current_index = len(bnn_history) - 1
             loss, choice_probabilities = strong_bnn.compute_elbo_loss(
-                bnn_history, ground_truth_labels, current_index=current_index
+                bnn_history, ground_truth_labels
             )
             loss_history.append(loss)
 
@@ -171,7 +171,7 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
     gen_ethical_history = []
     ethical_ground_truths = []
     rounds_survived_history = dict()
-    total_iterations = 2
+    total_iterations = 0
     global_counter = 0
 
     while counter <= num_gens:

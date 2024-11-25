@@ -43,10 +43,6 @@ model = "gpt-4o-mini"
 
 
 if __name__ == "__main__":
-    mp.set_start_method('spawn', force=True)
-    ray.init()
-    print("Ray resources:", ray.cluster_resources())
-
     max_tokens = 10240
     temperature = 1.2
     top_p = 0.95
@@ -73,7 +69,7 @@ if __name__ == "__main__":
     votes = {'strong': 0, 'weak': 10} 
     shared_history = []
     bnn_history = []
-    num_gens = 2
+    num_gens = 1
 
     # Call the loop logic directly without Gradio
     result, loss, survival, ethics, ethical_ground_truths, survival_ground_truths = generational_driver(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, strong_bnn, config, num_gens, neat_trainer)

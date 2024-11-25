@@ -2,6 +2,11 @@ import os
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:False"
 import ray
 import traceback
+from mpi4py import MPI
+# Global MPI variables
+comm = MPI.COMM_WORLD
+rank = comm.Get_rank()
+size = comm.Get_size()
 
 # Initialize Ray at the beginning of your script
 import numpy as np
@@ -145,24 +150,23 @@ def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_label_list, a
 
     return fitness
 
-@ray.remote(num_gpus=0.25)  # Each task uses 20% of a GPU
 def evaluate_genome_remote(genome_id, genome, config, bnn_history, ground_truth_labels, attention_layers, ethical_ground_truths):
-    # Get the GPUs assigned to this task
-    cuda_visible_devices = os.environ.get('CUDA_VISIBLE_DEVICES')
-    print(f"Genome {genome_id} - CUDA_VISIBLE_DEVICES: {cuda_visible_devices}")
+    # Get the local rank
+    local_comm = comm.Split_type(MPI.COMM_TYPE_SHARED)
+    local_rank = local_comm.Get_rank()
 
-    if cuda_visible_devices is None or cuda_visible_devices == '':
-        # No GPU assigned, fall back to CPU
-        device = torch.device('cpu')
-        print(f"Genome {genome_id} is using CPU")
-    else:
-        # Use the first visible GPU within this task
-        device = torch.device('cuda:0')
-        print(f"Genome {genome_id} is using device {device}")
+    # Number of GPUs per node
+    num_gpus_per_node = 3  # Adjust according to your system
+
+    # Assign GPU based on local rank
+    gpu_id = local_rank % num_gpus_per_node
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    print(f"Genome {genome_id} - Rank {rank}, Local Rank {local_rank}, using device {device}")
 
     try:
         start_time = time.time()
-
         # Move bnn_history to the assigned device
         bnn_history_device = []
         for entry in bnn_history:
@@ -367,92 +371,110 @@ class NeatEvolution:
     def fitness_function(self, genomes, config, k, bnn_history, ground_truth_labels, ethical_ground_truths):
         attention_layers = self.attention_layers
 
-        # Place shared data in Ray object store
-        bnn_history_ref = ray.put(bnn_history)
-        ground_truth_labels_ref = ray.put(ground_truth_labels)
-        attention_layers_ref = ray.put(attention_layers)
-        ethical_ground_truths_ref = ray.put(ethical_ground_truths)
-        #print("Type of bnn_history_ref (Fitness Function):", type(bnn_history_ref))
-        #print("Type of ground_truth_labels_ref (Fitness Function):", type(ground_truth_labels_ref))
-        #print("Type of attention_layers_ref (Fitness Function):", type(attention_layers_ref))
+        # Broadcast necessary data to all processes
+        if rank == 0:
+            data = (bnn_history, ground_truth_labels, attention_layers, ethical_ground_truths)
+        else:
+            data = None
 
+        bnn_history, ground_truth_labels, attention_layers, ethical_ground_truths = comm.bcast(data, root=0)
 
-        # Create a mapping from genome IDs to the original genome objects
+        # Convert genomes to list and create genome_dict
+        genomes = list(genomes)
         genome_dict = dict(genomes)
 
-        # Launch evaluation tasks in parallel using Ray
-        futures = [
-            evaluate_genome_remote.remote(
-                genome_id, genome, config, bnn_history_ref, ground_truth_labels_ref, attention_layers_ref, ethical_ground_truths_ref
-            )
-            for genome_id, genome in genomes
-        ]
+        # Distribute genomes among processes
+        num_genomes = len(genomes)
+        genomes_per_process = num_genomes // size
+        remainder = num_genomes % size
 
-        # Retrieve results
-        results = ray.get(futures)
+        start_index = rank * genomes_per_process + min(rank, remainder)
+        end_index = start_index + genomes_per_process + (1 if rank < remainder else 0)
 
-        # Update genomes and collect fitness scores
-        fitness_report = []
-        decision_histories = []
-        for genome_id, fitness in results:
-            genome = genome_dict[genome_id]
-            genome.fitness = fitness
-            fitness_report.append(fitness)
+        local_genomes = genomes[start_index:end_index]
 
-            # Collect the decision and ethical histories
-            decision_histories.append({
-                'genome_id': genome_id,
-                'decisions': genome.decision_history,
-                'ethical_scores': genome.ethical_score_history,
-                'fitness': fitness
+        # Evaluate local genomes
+        local_results = []
+        for genome_id, genome in local_genomes:
+            genome_id, fitness = evaluate_genome_remote(genome_id, genome, config, bnn_history, ground_truth_labels, attention_layers, ethical_ground_truths)
+            local_results.append((genome_id, fitness))
+
+        # Gather results at root process
+        all_results = comm.gather(local_results, root=0)
+
+        if rank == 0:
+            # Combine results from all processes
+            all_results = [item for sublist in all_results for item in sublist]
+            # Update genomes and collect fitness scores
+            fitness_report = []
+            decision_histories = []
+            for genome_id, fitness in all_results:
+                genome = genome_dict[genome_id]
+                genome.fitness = fitness
+                fitness_report.append(fitness)
+
+                # Collect the decision and ethical histories
+                decision_histories.append({
+                    'genome_id': genome_id,
+                    'decisions': genome.decision_history,
+                    'ethical_scores': genome.ethical_score_history,
+                    'fitness': fitness
+                })
+
+            # Store the collected data for this generation
+            self.population_tradeoffs.append({
+                'generation': k,
+                'tradeoffs': decision_histories
             })
 
-        # Store the collected data for this generation
-        self.population_tradeoffs.append({
-            'generation': k,
-            'tradeoffs': decision_histories
-        })
+            # Calculate summary statistics
+            mean_fitness = np.mean(fitness_report)
+            median_fitness = np.median(fitness_report)
+            std_fitness = np.std(fitness_report)
+            upper_q = np.percentile(fitness_report, 75)
+            lower_q = np.percentile(fitness_report, 25)
+            iqr_fitness = upper_q - lower_q
 
-        # Calculate summary statistics
-        mean_fitness = np.mean(fitness_report)
-        median_fitness = np.median(fitness_report)
-        std_fitness = np.std(fitness_report)
-        upper_q = np.percentile(fitness_report, 75)
-        lower_q = np.percentile(fitness_report, 25)
-        iqr_fitness = upper_q - lower_q
+            # Get the top 5 and bottom 5 fitness scores
+            sorted_fitness = sorted(fitness_report, reverse=True)
+            top_5_fitness = sorted_fitness[:5]
+            bottom_5_fitness = sorted_fitness[-5:]
 
-        # Get the top 5 and bottom 5 fitness scores
-        sorted_fitness = sorted(fitness_report, reverse=True)
-        top_5_fitness = sorted_fitness[:5]
-        bottom_5_fitness = sorted_fitness[-5:]
+            # Print comprehensive fitness summary
+            print(f"Generation {k} Fitness Summary:")
+            print(f"  Mean Fitness: {mean_fitness:.4f}")
+            print(f"  Median Fitness: {median_fitness:.4f}")
+            print(f"  Standard Deviation: {std_fitness:.4f}")
+            print(f"  Upper Quartile: {upper_q:.4f}")
+            print(f"  Lower Quartile: {lower_q:.4f}")
+            print(f"  Interquartile Range (IQR): {iqr_fitness:.4f}")
+            print(f"  Top 5 Fitness Scores: {top_5_fitness}")
+            print(f"  Bottom 5 Fitness Scores: {bottom_5_fitness}")
 
-        # Print comprehensive fitness summary
-        print(f"Generation {k} Fitness Summary:")
-        print(f"  Mean Fitness: {mean_fitness:.4f}")
-        print(f"  Median Fitness: {median_fitness:.4f}")
-        print(f"  Standard Deviation: {std_fitness:.4f}")
-        print(f"  Upper Quartile: {upper_q:.4f}")
-        print(f"  Lower Quartile: {lower_q:.4f}")
-        print(f"  Interquartile Range (IQR): {iqr_fitness:.4f}")
-        print(f"  Top 5 Fitness Scores: {top_5_fitness}")
-        print(f"  Bottom 5 Fitness Scores: {bottom_5_fitness}")
+            # Find current best fitness
+            current_best_fitness = max(fitness_report)
 
-        # Find current best fitness
-        current_best_fitness = max(fitness_report)
+            # Check for fitness improvement
+            if self.best_fitness is None or current_best_fitness > self.best_fitness:
+                self.best_fitness = current_best_fitness
+                self.generations_without_improvement = 0
+                print(f"New best fitness: {self.best_fitness:.4f}")
+            else:
+                self.generations_without_improvement += 1
+                print(f"No improvement in fitness for {self.generations_without_improvement} generations")
 
-        # Check for fitness improvement
-        if self.best_fitness is None or current_best_fitness > self.best_fitness:
-            self.best_fitness = current_best_fitness
-            self.generations_without_improvement = 0
-            print(f"New best fitness: {self.best_fitness:.4f}")
+            # Check for stagnation
+            if self.generations_without_improvement >= self.stagnation_limit:
+                print(f"Stopping evolution: No improvement in fitness for {self.stagnation_limit} generations.")
+                return True  # This will now cause Population.run() to break the loop
+            else:
+                return False  # Continue evolution
+
         else:
-            self.generations_without_improvement += 1
-            print(f"No improvement in fitness for {self.generations_without_improvement} generations")
+            continue_evolution = None
 
-        # Check for stagnation
-        if self.generations_without_improvement >= self.stagnation_limit:
-            print(f"Stopping evolution: No improvement in fitness for {self.stagnation_limit} generations.")
-            return True  # This will now cause Population.run() to break the loop
-        else:
-            return False  # Continue evolution
+        # Broadcast the decision to all processes
+        continue_evolution = comm.bcast(continue_evolution, root=0)
+
+        return continue_evolution
 
