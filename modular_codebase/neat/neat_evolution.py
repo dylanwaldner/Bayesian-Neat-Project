@@ -1,28 +1,43 @@
 import os
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:False"
-import ray
+
 import traceback
+
 from mpi4py import MPI
 # Global MPI variables
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 size = comm.Get_size()
 
+# Get the local rank (process rank on the node)
+local_comm = comm.Split_type(MPI.COMM_TYPE_SHARED)
+local_rank = local_comm.Get_rank()
+
+# Number of GPUs per node
+num_gpus_per_node = 3  # Adjust according to your system
+
+# Assign GPU based on local rank
+gpu_id = local_rank % num_gpus_per_node
+os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id
+
 # Initialize Ray at the beginning of your script
 import numpy as np
 from math import ceil
+
 import torch
 print("Number of GPUs available:", torch.cuda.device_count())
 import torch.nn as nn
+
 import time
 import random
 import pytest
 import sys
+
 from bnn.bayesnn import BayesianNN
-from joblib import Parallel, delayed
-import torch.multiprocessing as mp
+
 import pyro
 import pyro.infer
+
 import bnn_neat
 #from bnn_neat.checkpoint import Checkpointer
 from bnn_neat.config import Config
@@ -151,18 +166,7 @@ def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_label_list, a
     return fitness
 
 def evaluate_genome_remote(genome_id, genome, config, bnn_history, ground_truth_labels, attention_layers, ethical_ground_truths):
-    # Get the local rank
-    local_comm = comm.Split_type(MPI.COMM_TYPE_SHARED)
-    local_rank = local_comm.Get_rank()
-
-    # Number of GPUs per node
-    num_gpus_per_node = 3  # Adjust according to your system
-
-    # Assign GPU based on local rank
-    gpu_id = local_rank % num_gpus_per_node
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Genome {genome_id} - Rank {rank}, Local Rank {local_rank}, using device {device}")
 
     try:
