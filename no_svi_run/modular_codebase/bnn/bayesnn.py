@@ -338,209 +338,13 @@ class BayesianNN(nn.Module):
         order.reverse()
         return order
 
-    def forward_svi(self, bnn_history, weights_samples, bias_samples, current_index=None, device=None):
+
+    def forward(self, bnn_history, current_index=None, num_samples=1, device=None, weights_samples=None, bias_samples=None):
         torch.autograd.set_detect_anomaly(True)
-
-        # Retrieve the device from the model's parameters
-        if device is None:
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        if current_index is None:
-            if self.current_index is not None:
-                current_index = self.current_index
-            else:
-                current_index = len(bnn_history) - 1
+        if self.vectorize_particles:
+            num_samples = self.num_particles
         else:
-            self.bnn_history = bnn_history
-
-        # Ensure self.input_matrix contains the full history only once
-        if len(bnn_history) > self.last_update_index:
-            self.update_matrix(self.bnn_history, current_index, device)
-
-        # Prepare input matrix and mask
-        self.input_matrix = self.input_matrix.clone().detach().float().to(device)
-        mask = (self.input_matrix != -1).float().to(device)
-        masked_input = self.input_matrix * mask  # Shape: (full_sequence_length, input_size)
-
-        # Slice input based on current_index if provided
-        relevant_input = masked_input[:current_index + 1, :]  # Shape: (sequence_length, input_size)
-        mask = mask[:current_index + 1, :]
-
-        sequence_length, input_size = relevant_input.shape
-
-        # Create storyteller mask
-        storyteller_mask = torch.tensor(
-            [entry['agent'] == "Storyteller" for entry in self.bnn_history[:current_index + 1]],
-            dtype=torch.bool,
-            device=device
-        )
-
-        # Compute combined context vector
-        combined_context = compute_attention(
-            relevant_input,
-            self.query_proj,
-            self.key_proj,
-            self.value_proj,
-            self.dropout,
-            storyteller_mask,
-            scaling_factor=0.3,
-            device=device
-        )  # Shape: (input_size,)
-
-        print(f"Combined context shape after compute_attention: {combined_context.shape}")
-
-        combined_context = combined_context.squeeze()
-        print(f"Combined context shape after squeeze: {combined_context.shape}")
-
-
-        # Get number of particles from weights_samples
-        num_particles = next(iter(weights_samples.values())).shape[0]  # Assuming weights have shape [num_particles]
-        expected_weight_shape = [num_particles]
-        expected_activation_shape = [num_particles]
-
-        # Assert initial weights
-        for conn_key, weight in weights_samples.items():
-            assert list(weight.shape) == expected_weight_shape, \
-                f"Unexpected weight shape for {conn_key}: {weight.shape}, expected: {expected_weight_shape}"
-
-        # Dummy sampling at the start of forward_svi
-        #dummy_sample_1 = pyro.sample("dummy_start_forward_svi", dist.Normal(0, 1))
-        #assert list(dummy_sample_1.shape) == [num_particles], \
-        #    f"Dummy sample at start of forward_svi has shape {dummy_sample_1.shape}, expected {[num_particles]}"
-
-
-
-        # Expand combined_context to match num_particles
-        combined_context = combined_context.unsqueeze(0).expand(num_particles, -1)  # Shape: [num_particles, input_size]
-
-        print(f"Combined context shape after expand: {combined_context.shape}")
-
-        # Initialize node activations using context vector for each input node
-        node_activations = {}
-        for idx, node_id in enumerate(self.input_indices):
-            input_value = combined_context[:, idx]  # Shape: [num_particles]
-            node_activations[node_id] = input_value
-       
-        printed = False
-        # Process nodes in topological order
-        node_order = self.topological_sort()
-        for node_id in node_order:
-            if node_id in self.input_indices:
-                continue  # Skip input nodes
-
-            incoming_values = []
-            printed1 = False
-            for conn_key, conn_data in self.connections.items():
-                in_node, out_node = conn_key
-                if out_node == node_id and conn_data['enabled']:
-                    weight = weights_samples[conn_key]  # Shape: [num_particles]
-                    assert list(weight.shape) == expected_weight_shape, \
-                        f"Unexpected shape for weight {conn_key} in node {node_id}: {weight.shape}, expected: {expected_weight_shape}"
-
-                    if not printed1:
-                        print("Weight Shape: ", weight.shape)
-                    if in_node not in node_activations:
-                        print(f"Activation for node {in_node} not found in node_activations.")
-                        print(f"Current node_id: {node_id}")
-                        print(f"Available node_activations keys: {list(node_activations.keys())}")
-                        raise KeyError(f"Activation for node {in_node} is not available.")
-                    input_value = node_activations[in_node]  # Shape: [num_particles]
-                    if input_value is not None:
-                        assert list(input_value.shape) == expected_activation_shape, \
-                            f"Unexpected input value shape for node {conn_key[0]}: {input_value.shape}, expected: {expected_activation_shape}"
-
-                    if not printed1:
-                        print("Input Value Shape: ", input_value.shape)
-
-                    # Ensure weight and input_value have the same shape
-                    incoming_value = weight * input_value  # Shape: [num_particles]
-                    if not printed1:
-                        print("Incoming Value Shape: ", incoming_value.shape)
-                    incoming_values.append(incoming_value)
-                    # Dummy sampling after combining weights and inputs
-                    #dummy_sample_2 = pyro.sample(f"dummy_after_{conn_key}_combine", dist.Normal(0, 1))
-                    #assert list(dummy_sample_2.shape) == [num_particles], \
-                     #   f"Dummy sample after combining {conn_key} has shape {dummy_sample_2.shape}, expected {[num_particles]}"
-
-                printed1 = True
-
-            # Apply the node's aggregation function
-            if incoming_values:
-                stacked_values = torch.stack(incoming_values, dim=-1)  # Shape: [num_particles, num_incoming]
-                assert stacked_values.dim() <= 2, \
-                    f"Unexpected stacked values shape for node {node_id}: {stacked_values.shape}"
-
-                # Dummy sampling after stacking
-                #dummy_sample_3 = pyro.sample(f"dummy_after_stack_{node_id}", dist.Normal(0, 1))
-                #assert list(dummy_sample_3.shape) == [num_particles], \
-                #    f"Dummy sample after stacking for node {node_id} has shape {dummy_sample_3.shape}, expected {[num_particles]}"
-
-
-                if not printed:
-                    print("Stacked Values Shape: ", stacked_values.shape)
-                aggregation_func = self.nodes[node_id].get('aggregation_func', torch.sum)
-                # Handle functions that return (values, indices), like max and min
-                if aggregation_func in [torch.max, torch.min]:
-                    total_input, _ = aggregation_func(stacked_values, dim=-1)  # Shape: [num_particles]
-                elif aggregation_func == torch.prod:
-                    # Clone the tensor before using torch.prod to avoid in-place modification errors
-                    total_input = aggregation_func(stacked_values.clone(), dim=-1)  # Shape: [num_particles]
-                else:
-                    total_input = aggregation_func(stacked_values, dim=-1)  # Shape: [num_particles]
-                if not printed:
-                    print("Total Input Shape After Aggregation: ", total_input.shape)
-            else:
-                total_input = torch.zeros(num_particles, device=device)  # Shape: [num_particles]
-
-            # Add bias
-            if not printed:
-                print("Total Input Shape Before Bias: ", total_input.shape)
-
-            bias = bias_samples.get(node_id, torch.zeros(num_particles, device=device))  # Shape: [num_particles]
-            if not printed:
-                print("Bias Shape: ", bias.shape)
-            total_input = total_input + bias  # Shape: [num_particles]
-            if not printed:
-                print("Total Input Shape After Bias: ", total_input.shape)
-
-            # Apply activation function
-            if node_id in self.output_nodes:
-                activation = total_input  # Shape: [num_particles]
-            else:
-                activation_func = self.nodes[node_id].get('activation_func', torch.relu)
-                activation = activation_func(total_input)  # Shape: [num_particles]
-
-            if not printed:
-                print("Activation Shape: ", activation.shape)
-
-            # Check for NaNs
-            if torch.isnan(activation).any():
-                print(f"NaN detected in activation of node {node_id}")
-                raise ValueError("NaN detected in activation.")
-
-            node_activations[node_id] = activation  # Shape: [num_particles]
-            printed = True
-
-        # Collect outputs
-        outputs = torch.stack([node_activations[node_id] for node_id in self.output_nodes], dim=1)  # Shape: [num_particles, num_outputs]
-        assert outputs.dim() <= 2, \
-            f"Unexpected outputs shape: {outputs.shape}"
-
-        # Final dummy sampling
-        #dummy_sample_4 = pyro.sample("dummy_end_forward_svi", dist.Normal(0, 1))
-        #assert list(dummy_sample_4.shape) == [num_particles], \
-        #    f"Dummy sample at end of forward_svi has shape {dummy_sample_4.shape}, expected {[num_particles]}"
-
-        print("OUTPUTS SHAPE: ", outputs.shape)
-        outputs = outputs.to(device)  # Ensure outputs are on the correct device
-
-        outputs = outputs.float()
-        return outputs
-
-
-
-    def forward_bce(self, bnn_history, current_index=None, num_samples=1, device=None):
-        torch.autograd.set_detect_anomaly(True)
+            num_samples = 1
 
         # Retrieve the device from the model's parameters
         if device is None:
@@ -555,7 +359,7 @@ class BayesianNN(nn.Module):
             self.bnn_history = bnn_history
 
         # Ensure self.input_matrix contains the full history only once
-        if len(bnn_history) > self.last_update_index:
+        if len(self.bnn_history) > self.last_update_index:
             self.update_matrix(self.bnn_history, current_index, device)
 
         # Prepare input matrix and mask
@@ -568,6 +372,8 @@ class BayesianNN(nn.Module):
         mask = mask[:current_index + 1, :]
 
         sequence_length, input_size = relevant_input.shape
+
+        print("SEQUENCE LENGTH: ", sequence_length)
 
         # Create storyteller mask
         storyteller_mask = torch.tensor(
@@ -587,35 +393,54 @@ class BayesianNN(nn.Module):
             scaling_factor=0.3,
             device=device
         )
+        print(f"combined_context shape before unsqueeze: {combined_context.shape}")
 
         # Expand for Monte Carlo samples
-        context_vector = combined_context.expand(num_samples, -1)
+        if self.vectorize_particles:
+            # combined_context shape: [input_size]
+            # Expand to [num_samples, input_size]
+            context_vector = combined_context.expand(num_samples, -1)  # Shape: [num_samples, input_size]
+        else:
+            # Shape: [input_size]
+            context_vector = combined_context  # Shape: [input_size]
+
+        print(f"combined_context shape after unsqueeze: {combined_context.shape}")
+        print(f"context_vector shape: {context_vector.shape}")
 
         # Initialize node activations using context vector for each input node
         node_activations = {}
-        for idx, node_id in enumerate(self.input_indices):
-            input_value = context_vector[:, idx]  # Shape: (num_samples,)
-            node_activations[node_id] = input_value
 
-        # Sample weights
-        sampled_weights = {}
-        for conn_key, conn_data in self.connections.items():
-            weight_mu = torch.tensor(conn_data['weight_mu'], dtype=torch.float32, device=device)
-            weight_sigma = torch.tensor(conn_data['weight_sigma'], dtype=torch.float32, device=device)
-            weight_sigma = torch.clamp(weight_sigma, min=1e-5)
-            weight_dist = dist.Normal(weight_mu, weight_sigma)
-            weight_samples = pyro.sample(f"w_{conn_key}", weight_dist.expand([num_samples]))
-            sampled_weights[conn_key] = weight_samples  # Shape: (num_samples,)
+        if self.vectorize_particles:
+            # context_vector shape: [num_samples, input_size]
+            for idx, node_id in enumerate(self.input_indices):
+                input_value = context_vector[:, idx]  # Shape: [num_samples]
+                node_activations[node_id] = input_value
+        else:
+            # context_vector shape: [input_size]
+            for idx, node_id in enumerate(self.input_indices):
+                input_value = context_vector[idx]  # Shape: scalar
+                node_activations[node_id] = input_value
 
-        # Sample biases
-        sampled_biases = {}
-        for node_id, node_data in self.nodes.items():
-            bias_mu = torch.tensor(node_data['bias_mu'], dtype=torch.float32, device=device)
-            bias_sigma = torch.tensor(node_data['bias_sigma'], dtype=torch.float32, device=device)
-            bias_sigma = torch.clamp(bias_sigma, min=1e-5)
-            bias_dist = dist.Normal(bias_mu, bias_sigma)
-            bias_samples = pyro.sample(f"b_{node_id}", bias_dist.expand([num_samples]))
-            sampled_biases[node_id] = bias_samples  # Shape: (num_samples,)
+        # Sample weights and biases
+        sampled_weights = weights_samples if weights_samples else {}
+        sampled_biases = bias_samples if bias_samples else {}
+
+        if not weights_samples:  # If weights are not pre-sampled (model case)
+            print("Drawing new samples!!!")
+            for conn_key, conn_data in self.connections.items():
+                weight_mu = torch.tensor(conn_data['weight_mu'], dtype=torch.float32, device=device)
+                weight_sigma = torch.tensor(conn_data['weight_sigma'], dtype=torch.float32, device=device)
+                weight_sigma = torch.clamp(weight_sigma, min=1e-5)
+                weight_dist = dist.Normal(weight_mu, weight_sigma)
+                sampled_weights[conn_key] = pyro.sample(f"w_{conn_key}", weight_dist)
+
+        if not bias_samples:  # If biases are not pre-sampled (model case)
+            for node_id, node_data in self.nodes.items():
+                bias_mu = torch.tensor(node_data['bias_mu'], dtype=torch.float32, device=device)
+                bias_sigma = torch.tensor(node_data['bias_sigma'], dtype=torch.float32, device=device)
+                bias_sigma = torch.clamp(bias_sigma, min=1e-5)
+                bias_dist = dist.Normal(bias_mu, bias_sigma)
+                sampled_biases[node_id] = pyro.sample(f"b_{node_id}", bias_dist)
 
         # Process nodes in topological order
         node_order = self.topological_sort()
@@ -627,57 +452,96 @@ class BayesianNN(nn.Module):
             for conn_key, conn_data in self.connections.items():
                 in_node, out_node = conn_key
                 if out_node == node_id and conn_data['enabled']:
-                    weight = sampled_weights[conn_key]  # Shape: (num_samples,)
+                    weight = sampled_weights[conn_key]  # Shape: [num_samples] or scalar
+                    print(f"Weight shape for connection {conn_key}: {weight.shape}")
                     if in_node not in node_activations:
                         print(f"Activation for node {in_node} not found in node_activations.")
                         print(f"Current node_id: {node_id}")
                         print(f"Available node_activations keys: {list(node_activations.keys())}")
                         raise KeyError(f"Activation for node {in_node} is not available.")
-                    input_value = node_activations[in_node]  # Shape: (num_samples,)
-                    incoming_values.append(weight * input_value)  # Shape: (num_samples,)
+                    input_value = node_activations[in_node]  # Shape: [num_samples] or scalar
+                    print(f"Input value shape for node {in_node}: {input_value.shape}")
+                    if weight.dim() == 2 and weight.shape[1] == 1:
+                        weight = weight.squeeze(-1)  # Converts shape [num_samples, 1] to [num_samples]
+
+                    if self.vectorize_particles:
+                        # weight and input_value are already of shape [num_samples]
+                        incoming_value = weight * input_value  # Shape: [num_samples]
+                    else:
+                        # Scalar multiplication
+                        incoming_value = weight * input_value  # Scalar
+
+                    incoming_values.append(incoming_value)
+                    print(f"Incoming value shape for node {node_id}: {incoming_value.shape}")
 
             # Apply the node's aggregation function
             if incoming_values:
-                stacked_values = torch.stack(incoming_values, dim=0)  # Shape: (num_incoming, num_samples)
+                if self.vectorize_particles:
+                    stacked_values = torch.stack(incoming_values, dim=-1)  # Shape: [num_samples, num_incoming]
+                else:
+                    stacked_values = torch.stack(incoming_values, dim=0)  # Shape: [num_incoming]
+                print(f"Stacked values shape for node {node_id}: {stacked_values.shape}")
+
                 aggregation_func = self.nodes[node_id].get('aggregation_func', torch.sum)
                 # Handle functions that return (values, indices), like max and min
                 if aggregation_func in [torch.max, torch.min]:
-                    total_input, _ = aggregation_func(stacked_values, dim=0)  # Shape: (num_samples,)
-
+                    if self.vectorize_particles:
+                        total_input, _ = aggregation_func(stacked_values, dim=-1)  # Shape: [num_samples]
+                    else:
+                        total_input, _ = aggregation_func(stacked_values, dim=0)  # Scalar
                 elif aggregation_func == torch.prod:
                     # Clone the tensor before using torch.prod to avoid in-place modification errors
-                    total_input = aggregation_func(stacked_values.clone(), dim=0)  # Shape: (num_samples,)
-
+                    if self.vectorize_particles:
+                        total_input = aggregation_func(stacked_values.clone(), dim=-1)  # Shape: [num_samples]
+                    else:
+                        total_input = aggregation_func(stacked_values.clone(), dim=0)  # Scalar
                 else:
-                    total_input = aggregation_func(stacked_values, dim=0)  # Shape: (num_samples,)
+                    if self.vectorize_particles:
+                        total_input = aggregation_func(stacked_values, dim=-1)  # Shape: [num_samples]
+                    else:
+                        total_input = aggregation_func(stacked_values, dim=0)  # Scalar
             else:
-                total_input = torch.zeros(num_samples, device=device)  # Shape: (num_samples,)
+                if self.vectorize_particles:
+                    total_input = torch.zeros(self.num_particles, device=device)  # Shape: [num_samples]
+                else:
+                    total_input = torch.tensor(0.0, device=device)  # Scalar
 
             # Add bias
-            bias = sampled_biases.get(node_id, torch.zeros(num_samples, device=device))
-            total_input = total_input + bias  # Shape: (num_samples,)
+            bias = sampled_biases.get(node_id, torch.tensor(0.0, device=device))
+            # bias shape is [num_samples] or scalar
+            total_input = total_input + bias  # Shape: [num_samples] or scalar
 
             # Apply activation function
             if node_id in self.output_nodes:
-                activation = total_input
+                activation = total_input  # Shape: [num_samples] or scalar
+                print(f"Activation shape for node {node_id}: {activation.shape}")
             else:
                 activation_func = self.nodes[node_id].get('activation_func', torch.relu)
                 activation = activation_func(total_input)
-
+                print(f"Activation shape for node {node_id}: {activation.shape}")
 
             # Check for NaNs
             if torch.isnan(activation).any():
                 print(f"NaN detected in activation of node {node_id}")
                 raise ValueError("NaN detected in activation.")
 
-            node_activations[node_id] = activation  # Shape: (num_samples,)
+            node_activations[node_id] = activation  # Shape: [num_samples] or scalar
 
         # Collect outputs
-        outputs = torch.stack([node_activations[node_id] for node_id in self.output_nodes], dim=1)
-        outputs = outputs.to(device)  # Ensure outputs are on the correct device
+        print(f"Collecting outputs...")
 
-        expected_shape = (num_samples, len(self.output_nodes))
+        if self.vectorize_particles:
+            # Collect activations of output nodes into outputs tensor
+            outputs = torch.stack([node_activations[node_id] for node_id in self.output_nodes], dim=1)  # Shape: [num_samples, num_outputs]
+            expected_shape = (num_samples, len(self.output_nodes))
+        else:
+            outputs = torch.tensor([node_activations[node_id] for node_id in self.output_nodes], device=device)
+            expected_shape = (len(self.output_nodes),)
+
         assert outputs.shape == expected_shape, f"Unexpected output shape: {outputs.shape}"
+
+        print(f"Output shape: {outputs.shape} | vectorize_particles={self.vectorize_particles} | num_particles={self.num_particles}")
+
         outputs = outputs.float()
         print("MODEL OUTPUTS: ", outputs)
         probabilities = torch.sigmoid(outputs)
@@ -687,11 +551,11 @@ class BayesianNN(nn.Module):
         return outputs
 
     def prepare_weights(self):
-        printed = False
         self.prepared_weights = {}
         for conn_key, conn_data in self.connections.items():
             weight_mu = conn_data["weight_mu"]
             weight_sigma = conn_data["weight_sigma"]
+            print("Weight mu: ", weight_mu)
             # Ensure weight_mu and weight_sigma are scalars
             if isinstance(weight_mu, (list, np.ndarray)) and len(weight_mu) == 1:
                 print("Readjusting weight mu model")
@@ -699,19 +563,9 @@ class BayesianNN(nn.Module):
             if isinstance(weight_sigma, (list, np.ndarray)) and len(weight_sigma) == 1:
                 print("Readjusting weight sigma model")
                 weight_sigma = weight_sigma[0]
-
-            # Convert to tensors
-            weight_mu_tensor = torch.tensor(weight_mu, dtype=torch.float32, device=device)
-            weight_sigma_tensor = torch.tensor(weight_sigma, dtype=torch.float32, device=device).clamp(min=1e-5)
-
-            # Assert correct shape
-            assert weight_mu_tensor.dim() == 0, f"Unexpected shape for weight_mu: {weight_mu_tensor.shape}, expected scalar"
-            assert weight_sigma_tensor.dim() == 0, f"Unexpected shape for weight_sigma: {weight_sigma_tensor.shape}, expected scalar"
-
-            # Store prepared weights
             self.prepared_weights[conn_key] = {
-                "mu": weight_mu_tensor,
-                "sigma": weight_sigma_tensor,
+                "mu": torch.tensor(weight_mu, dtype=torch.float32, device=device),
+                "sigma": torch.tensor(weight_sigma, dtype=torch.float32, device=device).clamp(min=1e-5),
             }
 
     def model(self, x_data, y_data):
@@ -726,90 +580,38 @@ class BayesianNN(nn.Module):
 
         num_particles = self.num_particles
 
-        # Sample weights and biases inside the particles plate
-        with pyro.plate("particles", num_particles, dim=-1):
-            expected_weight_shape = [num_particles]
-            # Dummy sampling at the start of plate
-            #dummy_sample_1 = pyro.sample("dummy_start", dist.Normal(0, 1))
-            #assert list(dummy_sample_1.shape) == [num_particles], \
-            #    f"Dummy sample at start of plate has shape {dummy_sample_1.shape}, expected {[num_particles]}"
-
+        # Sample weights and biases outside any plate
+        with pyro.plate("particles", num_particles, dim=-2):
             # Sample weights
             sampled_weights = {}
-            printed = False
             for conn_key, prepared_data in self.prepared_weights.items():
-                weight_mu = torch.tensor(prepared_data["mu"], dtype=torch.float32, device=device)
-                weight_sigma = torch.tensor(prepared_data["sigma"], dtype=torch.float32, device=device).clamp(min=1e-5)
+                weight_mu = prepared_data["mu"]
+                weight_sigma = prepared_data["sigma"]
                 weight_samples = pyro.sample(f"w_{conn_key}", dist.Normal(weight_mu, weight_sigma))
-                if weight_samples.shape == (num_particles, num_particles):
-                    weight_samples = weight_samples[..., 0]  # Select the first "list" of samples
-
-                if not printed:
-                    print("Weight sample in model: ", weight_samples)
-                    printed = True
-                assert list(weight_samples.shape) == expected_weight_shape, \
-                    print(f"Unexpected shape for weight {conn_key}: {weight_samples.shape}, expected: {expected_weight_shape}")
-
-                # Dummy sampling after weight sampling
-                #dummy_sample_2 = pyro.sample(f"dummy_after_{conn_key}", dist.Normal(0, 1))
-                #assert list(dummy_sample_2.shape) == [num_particles], \
-                #    f"Dummy sample after {conn_key} sampling has shape {dummy_sample_2.shape}, expected {[num_particles]}"
-
-
-                sampled_weights[conn_key] = weight_samples  # Shape: [num_particles]
-
-
+                sampled_weights[conn_key] = weight_samples
 
             # Sample biases
-            printed = False
             sampled_biases = {}
             for node_id, node_data in self.nodes.items():
                 bias_mu = torch.tensor(node_data["bias_mu"], dtype=torch.float32, device=device)
                 bias_sigma = torch.tensor(node_data["bias_sigma"], dtype=torch.float32, device=device).clamp(min=1e-5)
-
                 bias_samples = pyro.sample(f"b_{node_id}", dist.Normal(bias_mu, bias_sigma))
-                if bias_samples.shape == (num_particles, num_particles):
-                    bias_samples = bias_samples[..., 0]  # Select the first "list" of samples
-                if not printed:
-                    print("Bias sample in model: ", bias_samples)
-                    printed = True
-                assert list(bias_samples.shape) == expected_weight_shape, \
-                    print(f"Unexpected shape for bias {node_id}: {bias_samples.shape}, expected: {expected_weight_shape}")
-
-                # Dummy sampling after bias sampling
-                #dummy_sample_3 = pyro.sample(f"dummy_after_bias_{node_id}", dist.Normal(0, 1))
-                #assert list(dummy_sample_3.shape) == [num_particles], \
-                #    f"Dummy sample after bias {node_id} has shape {dummy_sample_3.shape}, expected {[num_particles]}"
-
-
-                sampled_biases[node_id] = bias_samples  # Shape: [num_particles]
-
-            # Dummy sampling before forward pass
-            #dummy_sample_4 = pyro.sample("dummy_before_forward_pass", dist.Normal(0, 1))
-            #assert list(dummy_sample_4.shape) == [num_particles], \
-            #    f"Dummy sample before forward pass has shape {dummy_sample_4.shape}, expected {[num_particles]}"
-
+                sampled_biases[node_id] = bias_samples
 
             # Proceed with forward pass
-            logits = self.forward_svi(
+            logits = self.forward(
                 self.bnn_history,
                 weights_samples=sampled_weights,
                 bias_samples=sampled_biases
             ).to(device)  # Shape: [num_particles, num_outputs]
 
-            self.model_output = logits
-
-            # Dummy sampling after forward pass
-            #dummy_sample_5 = pyro.sample("dummy_after_forward_pass", dist.Normal(0, 1))
-            #assert list(dummy_sample_5.shape) == [num_particles], \
-            #    f"Dummy sample after forward pass has shape {dummy_sample_5.shape}, expected {[num_particles]}"
-
+            print("Y DATA SHAPE: ", y_data.shape)
 
             # Expand y_data to match logits shape
-            y_data_expanded = y_data.expand(num_particles, -1)  # Shape: [num_particles, num_outputs]
-            assert list(y_data_expanded.shape) == list(logits.shape), \
-                print(f"Unexpected shape for expanded y_data: {y_data_expanded.shape}, expected: {logits.shape}")
+            y_data_expanded = y_data.expand(num_particles, -1)  # Now [num_particles, num_outputs]
 
+            print(f"logits shape: {logits.shape}")  # Expected: [num_particles, num_outputs]
+            print(f"y_data_expanded shape: {y_data_expanded.shape}")  # Expected: [num_particles, num_outputs]
 
             # Sample the observations
             pyro.sample("obs", dist.Bernoulli(logits=logits).to_event(1), obs=y_data_expanded)
@@ -818,108 +620,63 @@ class BayesianNN(nn.Module):
     def guide(self, x_data, y_data):
         num_particles = self.num_particles
 
-        # Register parameters
+        # Register parameters as before
         for conn_key in self.connections:
             weight_mu_value = self.connections[conn_key]['weight_mu']
             weight_sigma_value = self.connections[conn_key]['weight_sigma']
 
             # Ensure weight_mu_value and weight_sigma_value are scalars
-            if isinstance(weight_mu_value, (list, np.ndarray, torch.Tensor)) and len(weight_mu_value) == 1:
+            if isinstance(weight_mu_value, (list, np.ndarray)) and len(weight_mu_value) == 1:
                 print("Readjusting weight mu guide")
                 weight_mu_value = weight_mu_value[0]
-            if isinstance(weight_sigma_value, (list, np.ndarray, torch.Tensor)) and len(weight_sigma_value) == 1:
+            if isinstance(weight_sigma_value, (list, np.ndarray)) and len(weight_sigma_value) == 1:
                 print("Readjusting weight sigma guide")
                 weight_sigma_value = weight_sigma_value[0]
 
-            weight_mu_value = float(weight_mu_value)
-            weight_sigma_value = float(weight_sigma_value)
-
-            # Assertions to ensure the parameters are scalars
-            assert isinstance(weight_mu_value, float), f"weight_mu for {conn_key} is not a scalar. Got: {type(weight_mu_value)}"
-            assert isinstance(weight_sigma_value, float), f"weight_sigma for {conn_key} is not a scalar. Got: {type(weight_sigma_value)}"
-
-
-            weight_mu_param = pyro.param(
+            pyro.param(
                 f"w_mu_{conn_key}",
-                torch.tensor(weight_mu_value, device=device, dtype=torch.float32)
+                lambda: torch.tensor(weight_mu_value, device=device, dtype=torch.float32)
             )
-            weight_sigma_param = pyro.param(
+            pyro.param(
                 f"w_sigma_{conn_key}",
-                torch.tensor(weight_sigma_value, device=device, dtype=torch.float32),
+                lambda: torch.tensor(weight_sigma_value, device=device, dtype=torch.float32),
                 constraint=dist.constraints.positive
             )
-
-            # Assertions to ensure the Pyro parameters have the correct shape and type
-            assert weight_mu_param.shape == torch.Size([]), \
-                f"weight_mu_param for {conn_key} has unexpected shape {weight_mu_param.shape}, expected scalar []"
-            assert weight_sigma_param.shape == torch.Size([]), \
-                f"weight_sigma_param for {conn_key} has unexpected shape {weight_sigma_param.shape}, expected scalar []"
 
         for node_id in self.nodes:
             bias_mu_value = self.nodes[node_id]['bias_mu']
             bias_sigma_value = self.nodes[node_id]['bias_sigma']
 
-            if isinstance(bias_mu_value, (list, np.ndarray, torch.Tensor)) and len(bias_mu_value) == 1:
+            if isinstance(bias_mu_value, (list, np.ndarray)) and len(bias_mu_value) == 1:
                 print("Readjusting bias mu guide")
                 bias_mu_value = bias_mu_value[0]
-            if isinstance(bias_sigma_value, (list, np.ndarray, torch.Tensor)) and len(bias_sigma_value) == 1:
+            if isinstance(bias_sigma_value, (list, np.ndarray)) and len(bias_sigma_value) == 1:
                 print("Readjusting bias sigma guide")
                 bias_sigma_value = bias_sigma_value[0]
 
-            bias_mu_value = float(bias_mu_value)
-            bias_sigma_value = float(bias_sigma_value)
-
-            bias_mu_param = pyro.param(
+            pyro.param(
                 f"b_mu_{node_id}",
-                torch.tensor(bias_mu_value, device=device, dtype=torch.float32)
+                lambda: torch.tensor(bias_mu_value, device=device, dtype=torch.float32)
             )
-            bias_sigma_param = pyro.param(
+            pyro.param(
                 f"b_sigma_{node_id}",
-                torch.tensor(bias_sigma_value, device=device, dtype=torch.float32),
+                lambda: torch.tensor(bias_sigma_value, device=device, dtype=torch.float32),
                 constraint=dist.constraints.positive
             )
 
-             # Assertions to ensure the Pyro parameters have the correct shape and type
-            assert bias_mu_param.shape == torch.Size([]), \
-                f"bias_mu_param for {node_id} has unexpected shape {bias_mu_param.shape}, expected scalar []"
-            assert bias_sigma_param.shape == torch.Size([]), \
-                f"bias_sigma_param for {node_id} has unexpected shape {bias_sigma_param.shape}, expected scalar []"
-
-
-
         # Sample weights and biases outside any plate
-        with pyro.plate("particles", num_particles, dim=-1):
+        with pyro.plate("particles", num_particles, dim=-2):
             # Sample weights
-            printed = False
             for conn_key in self.connections:
                 weight_mu = pyro.param(f"w_mu_{conn_key}")
                 weight_sigma = pyro.param(f"w_sigma_{conn_key}")
-                weight_sample = pyro.sample(f"w_{conn_key}", dist.Normal(weight_mu, weight_sigma))
-                if weight_sample.shape == (num_particles, num_particles):
-                    weight_sample = weight_sample[..., 0]  # Select the first "list" of samples
-
-                if not printed:
-                    print(f"Weight sample for conn {conn_key} in guide: ", weight_sample)
-                    printed = True
-                expected_sample_shape = [num_particles] + list(weight_mu.shape)
-                assert list(weight_sample.shape) == expected_sample_shape, \
-                    f"Weight sample for {conn_key} has unexpected shape {weight_sample.shape}, expected {expected_sample_shape}, weight_mu shape = {weight_mu.shape}, weight_sigma shape = {weight_sigma.shape}. "
+                pyro.sample(f"w_{conn_key}", dist.Normal(weight_mu, weight_sigma))
 
             # Sample biases
-            printed = False
             for node_id in self.nodes:
                 bias_mu = pyro.param(f"b_mu_{node_id}")
                 bias_sigma = pyro.param(f"b_sigma_{node_id}")
-                bias_sample = pyro.sample(f"b_{node_id}", dist.Normal(bias_mu, bias_sigma))
-                if bias_sample.shape == (num_particles, num_particles):
-                    bias_sample = bias_sample[..., 0]  # Select the first "list" of samples
-                if not printed:
-                    print(f"Bias sample for {node_id} in guide: ", bias_sample)
-                    printed = True
-                # Assertions for sampled biases
-                expected_sample_shape = [num_particles] + list(bias_mu.shape)
-                assert list(bias_sample.shape) == expected_sample_shape, \
-                    f"Bias sample for {node_id} has unexpected shape {bias_sample.shape}, expected {expected_sample_shape}"
+                pyro.sample(f"b_{node_id}", dist.Normal(bias_mu, bias_sigma))
 
     def svi_step(self, bnn_history, ground_truth):
         if len(bnn_history) > self.last_update_index:

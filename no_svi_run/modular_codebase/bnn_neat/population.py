@@ -3,7 +3,6 @@
 from bnn_neat.math_util import mean
 from bnn_neat.reporting import ReporterSet
 from bnn_neat.genome import DefaultGenome
-import json
 
 class CompleteExtinctionException(Exception):
     pass
@@ -55,7 +54,7 @@ class Population(object):
     def remove_reporter(self, reporter):
         self.reporters.remove(reporter)
 
-    def run(self, fitness_function, n=None, neat_iteration="NoneSet"):
+    def run(self, fitness_function, n=None):
         """
         Runs NEAT's genetic algorithm for at most n generations.  If n
         is None, run until solution is found or extinction occurs.
@@ -78,10 +77,6 @@ class Population(object):
         if self.config.no_fitness_termination and (n is None):
             raise RuntimeError("Cannot have no generational limit with no fitness termination")
 
-        evolution_data = {
-            "generations": []
-        }
-
         k = 0
         while n is None or k < n:
             k += 1
@@ -98,61 +93,12 @@ class Population(object):
 
             # Gather and report statistics.
             best = None
-            generation_data = {
-                "generation": self.generation,
-                "population_size": len(self.population),
-                "species_count": len(self.species.species),
-                "species_details": [],
-                "best_genome": None
-            }
-
             for g in self.population.values():
                 if g.fitness is None:
                     raise RuntimeError("Fitness not assigned to genome {}".format(g.key))
 
                 if best is None or g.fitness > best.fitness:
                     best = g
-
-            # Collect species details
-            for sid, species in self.species.species.items():
-                # Calculate average ethical score for the species
-                genome_ids = list(species.members.keys())
-                ethical_scores = []
-
-                for g_id in genome_ids:
-                    if g_id in self.population:
-                        ethical_score_history = self.population[g_id].ethical_score_history
-                        # Extract only the scores from (idx, score) tuples
-                        scores = [score for _, score in ethical_score_history]
-                        if scores:  # Only calculate the average if there are scores
-                            ethical_scores.append(sum(scores) / len(scores))  # Average of this genome's ethical scores
-
-                # Calculate the average ethical score for the species
-                avg_ethical_score = sum(ethical_scores) / len(ethical_scores) if ethical_scores else None
-
-                species_data = {
-                    "species_id": sid,
-                    "age": self.generation - species.created,
-                    "size": len(species.members),
-                    "fitness": species.fitness,
-                    "adjusted_fitness": species.adjusted_fitness,
-                    "stagnation": self.generation - species.last_improved,
-                    "genome_ids": list(species.members.keys()),  # Add genome IDs in this species
-                    "avg_ethical_score": avg_ethical_score  # Add aggregated ethical score
-                }
-                generation_data["species_details"].append(species_data)
-
-            # Add the best genome of this generation
-            if best is not None:
-                generation_data["best_genome"] = {
-                    "key": best.key,
-                    "fitness": best.fitness,
-                    "size": best.size()
-                }
-
-            # Append generation data
-            evolution_data["generations"].append(generation_data)
-
             self.reporters.post_evaluate(self.config, self.population, self.species, best)
 
             # Track the best genome ever seen.
@@ -202,9 +148,5 @@ class Population(object):
 
         if self.config.no_fitness_termination:
             self.reporters.found_solution(self.config, self.generation, self.best_genome)
-
-        # Save the evolution data to a JSON file
-        with open(f"evolution_generation_data_{neat_iteration}.json", "w") as json_file:
-            json.dump(evolution_data, json_file, indent=4)
 
         return self.best_genome

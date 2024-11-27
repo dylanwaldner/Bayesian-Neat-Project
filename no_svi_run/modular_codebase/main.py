@@ -1,13 +1,12 @@
 import os
 import sys
-sys.path.insert(0, '/scratch/cluster/dylantw/Risto/init/no_svi_run/modular_codebase')
 
 # Print the current working directory and sys.path
 print("Current Working Directory:", os.getcwd())
 print("Python Path:", sys.path)
-print("RIGHT DIRECTORY")
 
 # Add the current directory to sys.path explicitly
+sys.path.insert(0, os.getcwd())
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:False"
 
 import ray
@@ -16,7 +15,6 @@ import torch
 import re
 
 import bnn.bayesnn
-print(f"BayesNN loaded from: {bnn.bayesnn.__file__}")
 from bnn.bayesnn import BayesianNN
 
 import numpy as np
@@ -33,6 +31,7 @@ from utils.text_utils import normalize_string, trim_response, extract_choices_an
 from bnn.bnn_utils import update_bnn_history
 
 import sys
+sys.path.insert(0, '/scratch/cluster/dylantw/Risto/init/bnn-neat-python')
 
 import bnn_neat
 from bnn_neat.genome import DefaultGenome
@@ -73,12 +72,36 @@ if __name__ == "__main__":
     ground_truth_label_list = []
     ethical_ground_truths = []
     gen_loss_history = []
-    gen_ethical_history = []
 
     num_gens = 1
 
     # Call the loop logic directly without Gradio
-    result, gen_loss_history, gen_ethical_history, ethical_ground_truths, survival_ground_truths = generational_driver(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, ground_truth_label_list, ethical_ground_truths, gen_loss_history, gen_ethical_history, strong_bnn, config, num_gens, neat_trainer)
+    result, gen_loss_history, survival, ethical_ground_truths, survival_ground_truths = generational_driver(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, ground_truth_label_list, ethical_ground_truths, gen_loss_history, strong_bnn, config, num_gens, neat_trainer)
+    print("RESULT: ", result)  # You can save it or print the result
+    print("LOSS: ", gen_loss_history)
+    print("ETHICAL GROUND TRUTHS: ", ethical_ground_truths)
+    print("SURVIVAL HISTORY: ", survival)
+    print("SURVIVAL GROUND TRUTHS: ", survival_ground_truths)
+    # Calculate the total rounds survived across all games
+    total_rounds_survived = sum(survival.values())
 
-    print("Experiment complete. Results saved.")
+    # Calculate the total possible rounds (50 per game)
+    total_possible_rounds = 50 * len(survival)
 
+    # Calculate the survival rate as a percentage
+    survival_rate = (total_rounds_survived / total_possible_rounds) * 100
+    print(f"Survival Rate: {survival_rate:.2f}%")
+
+    # Generate and save the progress plot
+    average_loss_per_gen = [sum(l) / len(l) for l in gen_loss_history]
+    survival_counts = list(survival.values())
+    average_ethical_score_per_gen = [sum(e) / len(e) if len(e) > 0 else 0 for e in ethics]
+
+    save_experiment_results(result, gen_loss_history, survival, ethics, ethical_ground_truths, survival_rate)
+
+    # Generate and save individual plots
+    plot_loss_and_survival(average_loss_per_gen, survival_counts, filename='loss_and_survival_plot.png')
+    plot_survival_and_ethics(survival_counts, average_ethical_score_per_gen, filename='survival_and_ethics_plot.png')
+    plot_loss_and_ethics(average_loss_per_gen, average_ethical_score_per_gen, filename='loss_and_ethics_plot.png')
+
+    print("done")

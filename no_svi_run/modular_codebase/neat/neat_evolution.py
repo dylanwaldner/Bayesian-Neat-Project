@@ -56,9 +56,9 @@ import time
 import random
 import pytest
 import sys
-from neat.neat_utils import save_evolution_results
+
 from bnn.bayesnn import BayesianNN
-import json
+
 import pyro
 import pyro.infer
 
@@ -70,7 +70,7 @@ from bnn_neat.reproduction import DefaultReproduction
 from bnn_neat.species import DefaultSpeciesSet
 from bnn_neat.stagnation import DefaultStagnation
 from bnn_neat.genes import DefaultConnectionGene, DefaultNodeGene
-from bnn_neat.reporting import ReporterSet, StdOutReporter, BaseReporter
+from bnn_neat.reporting import ReporterSet
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class BayesianGenome(DefaultGenome):
@@ -194,11 +194,11 @@ def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_label_list, a
 
         # Record the decision made by the genome at this time step
         chosen_action = torch.argmax(probabilities).item()
-        decision_history.append((idx, chosen_action))
+        decision_history.append(chosen_action)
 
         # Get the ethical score corresponding to the chosen action
         ethical_score = ethical_scores[chosen_action]
-        ethical_score_history.append((idx, ethical_score))
+        ethical_score_history.append(ethical_score)
 
     print("Num Entries (in evaluate_genome()): ", num_entries)
     if num_entries > 0:
@@ -293,12 +293,11 @@ def evaluate_genome_remote(genome_id, genome, config, bnn_history, ground_truth_
     return genome_id, fitness
 
 class NeatEvolution:
-    def __init__(self, config, config_path, bnn, neat_iteration=None):
+    def __init__(self, config, config_path, bnn):
         self.config = config
         self.config_path = config_path
         self.bnn = bnn
         self.stagnation_limit = 5  # Number of generations to wait for improvement
-        self.neat_iteration = neat_iteration
 
         self.population_tradeoffs = []
         
@@ -442,23 +441,14 @@ class NeatEvolution:
         return genome
 
     def run_neat_step(self, strong_bnn, bnn_history, ground_truth_labels, ethical_ground_truths):
-        self.max_generations = 1
         winner = self.population.run(
             lambda genomes, _, k: self.fitness_function(genomes, self.config, k, bnn_history, ground_truth_labels, ethical_ground_truths),
-            n=self.max_generations,
-            neat_iteration=self.neat_iteration
+            n=1
         )
         return winner
 
     def fitness_function(self, genomes, config, k, bnn_history, ground_truth_labels, ethical_ground_truths):
         attention_layers = self.attention_layers
-
-        # Initialize evolution results if not already defined
-        if not hasattr(self, "evolution_results"):
-            self.evolution_results = {
-                "fitness_summary": [],  # Holds per-generation fitness statistics
-                "population_tradeoffs": []  # Stores decision and ethical histories
-            }
 
         # Broadcast necessary data to all processes
         if rank == 0:
@@ -525,6 +515,7 @@ class NeatEvolution:
             decision_histories = []
             for genome_id, fitness in all_results:
                 genome = genome_dict[genome_id]
+                genome.fitness = fitness
                 fitness_report.append(fitness)
 
                 # Collect the decision and ethical histories
@@ -532,12 +523,11 @@ class NeatEvolution:
                     'genome_id': genome_id,
                     'decisions': genome.decision_history,
                     'ethical_scores': genome.ethical_score_history,
-                    'fitness': genome.fitness,
-                    'mutation_history': genome.mutation_history
+                    'fitness': fitness
                 })
 
             # Store the collected data for this generation
-            self.evolution_results["population_tradeoffs"].append({
+            self.population_tradeoffs.append({
                 'generation': k,
                 'tradeoffs': decision_histories
             })
@@ -555,26 +545,19 @@ class NeatEvolution:
             top_5_fitness = sorted_fitness[:5]
             bottom_5_fitness = sorted_fitness[-5:]
 
+            # Print comprehensive fitness summary
+            print(f"Generation {k} Fitness Summary:")
+            print(f"  Mean Fitness: {mean_fitness:.4f}")
+            print(f"  Median Fitness: {median_fitness:.4f}")
+            print(f"  Standard Deviation: {std_fitness:.4f}")
+            print(f"  Upper Quartile: {upper_q:.4f}")
+            print(f"  Lower Quartile: {lower_q:.4f}")
+            print(f"  Interquartile Range (IQR): {iqr_fitness:.4f}")
+            print(f"  Top 5 Fitness Scores: {top_5_fitness}")
+            print(f"  Bottom 5 Fitness Scores: {bottom_5_fitness}")
+
             # Find current best fitness
             current_best_fitness = max(fitness_report)
-
-            # Summarize fitness
-            fitness_summary = {
-                'generation': k,
-                'mean_fitness': mean_fitness,
-                'median_fitness': median_fitness,
-                'std_fitness': std_fitness,
-                'upper_quartile': upper_q,
-                'lower_quartile': lower_q,
-                'iqr_fitness': iqr_fitness,
-                'top_5_fitness': top_5_fitness,
-                'bottom_5_fitness': bottom_5_fitness,
-                'best_fitness': current_best_fitness
-            }
-            self.evolution_results["fitness_summary"].append(fitness_summary)
-
-            if k == self.max_generations:
-                save_evolution_results(self.evolution_results, self.population_tradeoffs, neat_iteration = self.neat_iteration)
 
             # Check for fitness improvement
             if self.best_fitness is None or current_best_fitness > self.best_fitness:
@@ -588,7 +571,6 @@ class NeatEvolution:
             # Check for stagnation
             if self.generations_without_improvement >= self.stagnation_limit:
                 print(f"Stopping evolution: No improvement in fitness for {self.stagnation_limit} generations.")
-                save_evolution_results(self.evolution_results, self.population_tradeoffs, neat_iteration = self.neat_evolution)
                 return True  # This will now cause Population.run() to break the loop
             else:
                 return False  # Continue evolution
