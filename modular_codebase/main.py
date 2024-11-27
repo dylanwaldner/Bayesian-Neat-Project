@@ -69,15 +69,19 @@ if __name__ == "__main__":
     votes = {'strong': 0, 'weak': 10} 
     shared_history = []
     bnn_history = []
+    ground_truth_label_list = []
+    ethical_ground_truths = []
+    gen_loss_history = []
+
     num_gens = 1
 
     # Call the loop logic directly without Gradio
-    result, loss, survival, ethics, ethical_ground_truths, survival_ground_truths = generational_driver(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, strong_bnn, config, num_gens, neat_trainer)
+    result, gen_loss_history, survival, ethical_ground_truths, survival_ground_truths = generational_driver(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, ground_truth_label_list, ethical_ground_truths, gen_loss_history, strong_bnn, config, num_gens, neat_trainer)
     print("RESULT: ", result)  # You can save it or print the result
-    print("LOSS: ", loss)
-    print("SVI DECISION ETHICS: ", ethics)
+    print("LOSS: ", gen_loss_history)
     print("ETHICAL GROUND TRUTHS: ", ethical_ground_truths)
     print("SURVIVAL HISTORY: ", survival)
+    print("SURVIVAL GROUND TRUTHS: ", survival_ground_truths)
     # Calculate the total rounds survived across all games
     total_rounds_survived = sum(survival.values())
 
@@ -89,11 +93,11 @@ if __name__ == "__main__":
     print(f"Survival Rate: {survival_rate:.2f}%")
 
     # Generate and save the progress plot
-    average_loss_per_gen = [sum(l) / len(l) for l in loss]
+    average_loss_per_gen = [sum(l) / len(l) for l in gen_loss_history]
     survival_counts = list(survival.values())
     average_ethical_score_per_gen = [sum(e) / len(e) if len(e) > 0 else 0 for e in ethics]
 
-    save_experiment_results(result, loss, survival, ethics, ethical_ground_truths, survival_rate)
+    save_experiment_results(result, gen_loss_history, survival, ethics, ethical_ground_truths, survival_rate)
 
     # Generate and save individual plots
     plot_loss_and_survival(average_loss_per_gen, survival_counts, filename='loss_and_survival_plot.png')

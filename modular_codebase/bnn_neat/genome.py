@@ -221,6 +221,8 @@ class DefaultGenome(object):
         self.key = key
         self.mutation_history = []
 
+        self.evaluation_window = 5
+
         # (gene_key, gene) pairs for gene sets.
         self.connections = {}
         self.nodes = {}

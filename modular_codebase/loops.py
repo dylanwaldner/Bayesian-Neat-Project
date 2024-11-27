@@ -5,6 +5,7 @@ import pyro
 from storyteller import respond_storyteller
 from utils.text_generation import generate_text
 from utils.text_utils import normalize_string, trim_response, extract_choices_and_intro
+from utils.rates_utils import get_initial_rates, get_final_rates
 from bnn.bnn_utils import update_bnn_history
 
 import torch
@@ -12,18 +13,15 @@ import json
 
 import numpy as np
 
-def main_loop(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, strong_bnn, config, ground_truth_label_list, global_counter, train=True):
+def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_history, ground_truth_label_list, ethical_ground_truths, gen_loss_history, strong_bnn, config, global_counter, train=True):
     # Set a counter for the loop
     loop_counter = 0
-    max_loops = 50
+    max_loops = 2
     exit_code = 'Weak Agent died. Game over.'  # This is the expected exit code from the storyteller to stop the game
     first_prompt = True
     last_weak = ""
     # Initialize combined response
     combined_responses = ""
-    loss_history = []
-    chosen_ethics = []
-    all_choices_ethics = []
 
     storyteller_system = """
     You are a storyteller for a choose-your-own-adventure game. Your goal is to generate interactive prompts that immerse the player in a stochastic and adaptive world. The world must change in response to the player's decisions, creating a sense of continuity.
@@ -53,14 +51,18 @@ def main_loop(votes, max_tokens, temperature, top_p, danger, shared_history, bnn
         ground_truth_dict = {global_counter: ground_truth_labels}
 
         ground_truth_label_list.append(ground_truth_dict)
+        print(f"Ground Truth Label List Length: {len(ground_truth_label_list)}")
+
 
         ethical_scores_list = ethical_scores(storyteller_response)
         print("Normalized Ethical Scores: ", ethical_scores_list)
 
         ethical_scores_dict = {global_counter: ethical_scores_list}
 
-        all_choices_ethics.append(ethical_scores_dict)  # Track normalized ethical scores
-        print("Ethical Scores List: ", all_choices_ethics)
+        ethical_ground_truths.append(ethical_scores_dict)  # Track normalized ethical scores
+        print(f"Ethical Ground Truths Length: {len(ethical_ground_truths)}")
+
+        print("Ethical Scores List: ", ethical_ground_truths)
 
 
         intro, choices = extract_choices_and_intro(storyteller_response)
@@ -70,21 +72,23 @@ def main_loop(votes, max_tokens, temperature, top_p, danger, shared_history, bnn
 
         # Update the histories
         bnn_history = update_bnn_history(response=storyteller_response, agent="Storyteller", bnn_history=bnn_history, max_length=max_tokens, temperature=temperature, top_p=top_p, global_counter=global_counter)
+        print(f"BNN History Length: {len(bnn_history)}")
+
         shared_history.append({"role": "assistant", "content": "storyteller: " + storyteller_response})
 
         # Step 2: Agent Strong responds based on the storyteller's response
         if train:
             loss, choice_probabilities = strong_bnn.svi_step(bnn_history, ground_truth_labels)
+            print("OUT OF SVI STEP")
 
-            loss_history.append(loss)
+            gen_loss_history.append(loss)
 
         else:
             # Testing mode: Compute ELBO loss without optimization
-            current_index = len(bnn_history) - 1
-            loss, choice_probabilities = strong_bnn.compute_elbo_loss(
+            loss, choice_probabilities = strong_bnn.compute_bce_loss(
                 bnn_history, ground_truth_labels
             )
-            loss_history.append(loss)
+            gen_loss_history.append(loss)
 
         best_choice = torch.argmax(choice_probabilities)
 
@@ -94,28 +98,15 @@ def main_loop(votes, max_tokens, temperature, top_p, danger, shared_history, bnn
 
         ethics_score = ethical_scores_list[best_choice]
 
-        #agent_strong_response = next(respond_strong(strong_agent_input, strong_system, max_tokens, temperature, top_p, shared_history))
-
         # Update the histories
         bnn_history = update_bnn_history(response=strong_agent_response, agent="Strong", bnn_history=bnn_history, max_length=max_tokens, temperature=temperature, top_p=top_p, ethics_score=ethics_score, global_counter=global_counter)
         shared_history.append({"role": "user", "content": "strong agent: " + strong_agent_response})
 
-        chosen_ethics.append(ethics_score)
-
-        # Step 3: Set up the weak agent's input
-        #weak_input = "Storyteller's prompt: " + storyteller_response + " Strong Agent Suggestion: " + agent_strong_response 
-
-        # Step 4: Agent Weak responds based on both storyteller and strong agent's responses
-        #agent_weak_response = f"I choose {choices[best_choice]}"
-        #agent_weak_response = next(respond_weak(weak_input, weak_system, max_tokens, temperature, top_p, shared_history))
-
-        #bnn_history = update_bnn_history(response=agent_weak_response, agent="Weak", bnn_history=bnn_history, max_length=max_tokens, temperature=temperature, top_p=top_p)
-        #shared_history.append({"role": "user", "content": "weak agent: " + agent_weak_response})
-
         did_agent_survive = ground_truth_labels[best_choice]
 
         if did_agent_survive == 0:
-            bnn_history = update_bnn_history(response="Agent Died. Game Over", agent="Storyteller", bnn_history=bnn_history, max_length=max_tokens, temperature=temperature, top_p=top_p, global_counter=global_counter, death=True)
+            if len(bnn_history) >= 1:
+                bnn_history[-1]["survived"] = 0
             combined_responses += f"Storyteller: {storyteller_response} (Exit Code)\n"
             print("GAME OVER")
             print(f"Survived {loop_counter} Rounds")
@@ -130,17 +121,24 @@ def main_loop(votes, max_tokens, temperature, top_p, danger, shared_history, bnn
         # Increment the loop counter
         loop_counter += 1
         global_counter += 1
+        print("GLOBAL COUNTER: ", global_counter)
+
+        print(f"Storyteller entries in bnn_history: {sum(1 for entry in bnn_history if entry['agent'] == 'Storyteller')}")
+        print(f"Ground truth count: {len(ground_truth_label_list)}")
+
+        assert len(ground_truth_label_list) == sum(1 for entry in bnn_history if entry["agent"] == "Storyteller"), "Mismatch in counts!"
+
 
     # Summary statistics
-    mean_fitness = np.mean(loss_history)
-    median_fitness = np.median(loss_history)
-    std_fitness = np.std(loss_history)
-    upper_q = np.percentile(loss_history, 75)
-    lower_q = np.percentile(loss_history, 25)
-    iqr_fitness = np.percentile(loss_history, 75) - np.percentile(loss_history, 25)
+    mean_fitness = np.mean(gen_loss_history[-loop_counter:])
+    median_fitness = np.median(gen_loss_history[-loop_counter:])
+    std_fitness = np.std(gen_loss_history[-loop_counter:])
+    upper_q = np.percentile(gen_loss_history[-loop_counter:], 75)
+    lower_q = np.percentile(gen_loss_history[-loop_counter:], 25)
+    iqr_fitness = np.percentile(gen_loss_history[-loop_counter:], 75) - np.percentile(gen_loss_history[-loop_counter:], 25)
 
     # Get the top 5 and bottom 5 fitness scores
-    sorted_fitness = sorted(loss_history, reverse=True)
+    sorted_fitness = sorted(gen_loss_history[-loop_counter:], reverse=True)
     top_5_fitness = sorted_fitness[:5]
     bottom_5_fitness = sorted_fitness[-5:]
 
@@ -159,103 +157,34 @@ def main_loop(votes, max_tokens, temperature, top_p, danger, shared_history, bnn
     #print("\n shared_history: ", shared_history)
 
     # Return the combined responses (either complete after 50 loops or if the exit code was received)
-    return combined_responses, strong_bnn, bnn_history, ground_truth_label_list, loss_history, loop_counter, chosen_ethics, all_choices_ethics, global_counter
+    return combined_responses, strong_bnn, bnn_history, ground_truth_label_list, ethical_ground_truths, gen_loss_history, loop_counter, global_counter
 
-def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, strong_bnn, config, num_gens, neat_trainer):
+def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, ground_truth_label_list, ethical_ground_truths, gen_loss_history, strong_bnn, config, num_gens, neat_trainer):
     pyro.clear_param_store()
     config_path = "config-feedforward"
     counter = 1
     generational_history = []
-    ground_truth_label_list = []
-    gen_loss_history = []
-    gen_ethical_history = []
-    ethical_ground_truths = []
     rounds_survived_history = dict()
-    total_iterations = 0
+    total_iterations = 1
     global_counter = 0
 
     while counter <= num_gens:
         print("Ethical Ground Truths: ", ethical_ground_truths)
         # Run a single game
         print("Counter: ", counter)
-        result, strong_bnn, bnn_history, ground_truth_label_list, loss_history, rounds_survived, chosen_ethics, all_choices_ethics, global_counter = main_loop(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, strong_bnn, config, ground_truth_label_list, global_counter)
+        result, strong_bnn, bnn_history, ground_truth_label_list, ethical_ground_truths, gen_loss_history, rounds_survived, global_counter = main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_history, ground_truth_label_list, ethical_ground_truths, gen_loss_history, strong_bnn, config, global_counter)
 
         rounds_survived_history[f"Game {counter}"] = rounds_survived
         generational_history.append(result)
-        ethical_ground_truths.extend(all_choices_ethics)
-        gen_ethical_history.append(chosen_ethics)
-        gen_loss_history.append(loss_history)
 
         # Initial rates for parameters with high starting values (0.9, 1.0, or 0.5 for replace rates)
-        initial_rates = {
-            # Bias mutation and replacement
-            "bias_mu_mutate_rate": 0.9,
-            "bias_mu_mutate_power": 1.0,
-            "bias_mu_replace_rate": 0.5,
-            "bias_sigma_mutate_rate": 0.9,
-            "bias_sigma_mutate_power": 0.9,
-            "bias_sigma_replace_rate": 0.5,
-
-            # Weight mutation and replacement
-            "weight_mu_mutate_rate": 0.9,
-            "weight_mu_mutate_power": 1.0,
-            "weight_mu_replace_rate": 0.5,
-            "weight_sigma_mutate_rate": 0.9,
-            "weight_sigma_mutate_power": 1.0,
-            "weight_sigma_replace_rate": 0.5,
-
-            # Response mutation and replacement
-            "response_mu_mutate_rate": 0.9,
-            "response_mu_mutate_power": 0.9,
-            "response_mu_replace_rate": 0.5,
-            "response_sigma_mutate_rate": 0.9,
-            "response_sigma_mutate_power": 0.5,
-            "response_sigma_replace_rate": 0.5,
-
-            # Node mutation
-            "node_add_prob": 0.9,
-            "node_delete_prob": 0.7,
-
-            # Connection mutation
-            "conn_add_prob": 0.9,
-            "conn_delete_prob": 0.9,
-        }
+        initial_rates = get_initial_rates()
 
         # Final rates for gradual decay to lower values (e.g., 0.1 for most parameters)
-        final_rates = {
-            # Bias mutation and replacement
-            "bias_mu_mutate_rate": 0.1,
-            "bias_mu_mutate_power": 0.1,
-            "bias_mu_replace_rate": 0.1,
-            "bias_sigma_mutate_rate": 0.1,
-            "bias_sigma_mutate_power": 0.1,
-            "bias_sigma_replace_rate": 0.1,
+        final_rates = get_final_rates()
 
-            # Weight mutation and replacement
-            "weight_mu_mutate_rate": 0.1,
-            "weight_mu_mutate_power": 0.1,
-            "weight_mu_replace_rate": 0.1,
-            "weight_sigma_mutate_rate": 0.1,
-            "weight_sigma_mutate_power": 0.1,
-            "weight_sigma_replace_rate": 0.1,
-
-            # Response mutation and replacement
-            "response_mu_mutate_rate": 0.1,
-            "response_mu_mutate_power": 0.1,
-            "response_mu_replace_rate": 0.1,
-            "response_sigma_mutate_rate": 0.1,
-            "response_sigma_mutate_power": 0.1,
-            "response_sigma_replace_rate": 0.1,
-
-            # Node mutation
-            "node_add_prob": 0.1,
-            "node_delete_prob": 0.1,
-
-            # Connection mutation
-            "conn_add_prob": 0.1,
-            "conn_delete_prob": 0.1,
-        }
-
+        print("Initial Rates: ", initial_rates)
+        print("Final Rates: ", final_rates)
 
         if counter % 1 == 0:
             print("NEAT TIME")
@@ -276,7 +205,7 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
             pyro.clear_param_store()
 
             # Calculate the new learning rate
-            adam_lrs = [0.00005, 0.0001, 0.0005, 0.001]
+            adam_lrs = [0.000025, 0.00005, 0.0001, 0.00025]
 
             # Example usage
             neat_iteration = counter // (num_gens // total_iterations)
@@ -304,29 +233,33 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
                 json.dump(neat_trainer.population_tradeoffs, f, indent=4)
             print(f"Population tradeoffs saved to '{tradeoff_save_path}'")
 
+            model_save_path = f"winner_genome_model_iteration_{neat_iteration}.pth"
+            torch.save({
+                'model_state_dict': strong_bnn.state_dict(),
+                'genome': winner_genome,  # Save genome if useful for future use
+                'attention_layers': attention_layers,
+                'config': config  # Save configuration for reconstruction if needed
+            }, model_save_path)
+            print(f"Winner genome model saved to '{model_save_path}'")
+
+
         max_history_length = 1000  # Adjust based on memory constraints
         if len(bnn_history) > max_history_length:
             bnn_history = bnn_history[-max_history_length:]
+            
 
         counter += 1
 
     # Second loop: 15 games without optimization
     print("\n--- Starting Testing Phase: 15 Games Without Optimization ---\n")
     with torch.no_grad():
-        for test_game in range(1, 3):  # 15 games
+        for test_game in range(1, 2):  # 15 games
             print(f"Test Game {test_game}")
-            result, strong_bnn, bnn_history, ground_truth_label_list, loss_history, rounds_survived, chosen_ethics, all_choices_ethics, global_counter = main_loop(
-                votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, strong_bnn, config, ground_truth_label_list, global_counter, train=False
-            )
-
-            # Append results for analysis
+            result, strong_bnn, bnn_history, ground_truth_label_list, ethical_ground_truths, gen_loss_history, rounds_survived, global_counter = main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_history, ground_truth_label_list, ethical_ground_truths, gen_loss_history, strong_bnn, config, global_counter, train=False)# Append results for analysis
             rounds_survived_history[f"Game {counter}"] = rounds_survived
             generational_history.append(result)
-            ethical_ground_truths.extend(all_choices_ethics)
-            gen_ethical_history.append(chosen_ethics)
-            gen_loss_history.append(loss_history)
 
 
 
-    return generational_history, gen_loss_history, rounds_survived_history, gen_ethical_history, ethical_ground_truths, ground_truth_label_list
+    return generational_history, gen_loss_history, rounds_survived_history, ethical_ground_truths, ground_truth_label_list
 

@@ -12,6 +12,8 @@ from .plotting import plot_loss_and_survival, plot_survival_and_ethics, plot_los
 # Import text generation utilities
 from .text_generation import generate_text  # Example: Replace with actual text generation function/class
 
+from .rates_utils import get_initial_rates, get_final_rates
+
 # If desired, define what gets imported when using `from utils import *`
 __all__ = [
     "normalize_string",
@@ -20,5 +22,7 @@ __all__ = [
     "setup_logger",
     "plot_loss",
     "plot_accuracy",
-    "generate_text"
+    "generate_text",
+    "get_initial_rates",
+    "get_final_rates",
 ]

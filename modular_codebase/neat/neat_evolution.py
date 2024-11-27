@@ -1,24 +1,48 @@
 import os
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:False"
+import random
 
 import traceback
 
-from mpi4py import MPI
-# Global MPI variables
-comm = MPI.COMM_WORLD
-rank = comm.Get_rank()
-size = comm.Get_size()
+global rank, local_rank
 
-# Get the local rank (process rank on the node)
-local_comm = comm.Split_type(MPI.COMM_TYPE_SHARED)
-local_rank = local_comm.Get_rank()
+try:
+    from mpi4py import MPI
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+    size = comm.Get_size()
 
-# Number of GPUs per node
-num_gpus_per_node = 3  # Adjust according to your system
+    local_comm = comm.Split_type(MPI.COMM_TYPE_SHARED)
+    local_rank = local_comm.Get_rank()
 
-# Assign GPU based on local rank
-gpu_id = local_rank % num_gpus_per_node
-os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id
+    num_gpus_per_node = 3  # Adjust to your system
+    gpu_id = local_rank % num_gpus_per_node
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+    print(f"MPI Initialized. GPU ID: {gpu_id}")
+except ImportError:
+    # Dummy MPI setup
+    class DummyComm:
+        def bcast(self, data, root):
+            return data  # No-op broadcast for single-process
+
+        def gather(self, data, root):
+            # In a single-process setup, just return a list containing the data
+            return [data]
+
+        def Get_rank(self):
+            return 0  # Simulate rank 0
+
+        def Get_size(self):
+            return 1  # Simulate a single process
+
+    comm = DummyComm()
+    rank = 0
+    size = 1
+    local_rank = 0
+    num_gpus_per_node = 1
+    gpu_id = local_rank % num_gpus_per_node
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+    print(f"MPI not available. Simulated GPU ID: {gpu_id}")
 
 # Initialize Ray at the beginning of your script
 import numpy as np
@@ -57,7 +81,7 @@ class BayesianGenome(DefaultGenome):
 
     # Override methods if necessary to handle weight_mu and weight_sigma
 
-def compute_elbo_loss(model_instance, bnn_history, ground_truth_labels, current_index=None, num_samples=1, device=None):
+def compute_bce_loss(model_instance, bnn_history, ground_truth_labels, current_index=None, device=None):
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -75,13 +99,27 @@ def compute_elbo_loss(model_instance, bnn_history, ground_truth_labels, current_
     x_data = torch.empty((1, model_instance.input_size), device=device).fill_(-1)
     y_data = ground_truth_labels.to(device)
 
-    # Use Pyro's Trace_ELBO to compute the loss
-    elbo = pyro.infer.Trace_ELBO(num_particles=4)
-    loss = elbo.loss(model_instance.model, model_instance.guide, x_data, y_data)
+    # Perform a forward pass to compute logits
+    logits = model_instance.forward(x_data, device=device)
 
-    return loss
+    # Apply sigmoid activation to get probabilities
+    probabilities = torch.sigmoid(logits)
+
+    # Compute BCE loss
+    loss_fn = torch.nn.BCELoss()
+    loss = loss_fn(probabilities, y_data)
+
+    model_instance.current_index = None
+
+    return loss.item(), logits, probabilities
+
 
 def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_label_list, all_choices_ethics, device):
+    print(f"Evaluating genome: {genome.key}")
+    print(f"BNN History Length: {len(bnn_history)}")
+    print(f"Number of Ground Truth Label Entries: {len(ground_truth_label_list)}")
+    print(f"Number of Ethical Score Entries: {len(all_choices_ethics)}")
+
     # Reset the BNN's input matrix and last update index
     bnn.input_matrix = None
     bnn.last_update_index = 0
@@ -97,6 +135,9 @@ def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_label_list, a
     ground_truth_label_map = {k: v for d in ground_truth_label_list for k, v in d.items()}
     ethical_score_map = {k: v for d in all_choices_ethics for k, v in d.items()}
 
+    print(f"Ground Truth Label Map Keys: {list(ground_truth_label_map.keys())[:5]}")
+    print(f"Ethical Score Map Keys: {list(ethical_score_map.keys())[:5]}")
+
     # Get entries where the agent is 'Storyteller' along with their indices
     storyteller_entries = [(idx, entry) for idx, entry in enumerate(bnn_history) if entry['agent'] == 'Storyteller']
 
@@ -107,10 +148,22 @@ def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_label_list, a
     if not storyteller_entries:
         # No valid entries, set fitness to a default low value
         genome.fitness = -float('inf')
+        print("No storyteller entries found. Assigning minimum fitness.")
         return genome.fitness
+    
+    evaluation_window = genome.evaluation_window
+
+    # Randomly select a subset of storyteller entries if there are enough entries
+    if len(storyteller_entries) > evaluation_window:
+        selected_storyteller_entries = random.sample(storyteller_entries, evaluation_window)
+    else:
+        # If fewer entries exist, use all of them
+        selected_storyteller_entries = storyteller_entries
 
     # Loop over storyteller entries
-    for idx, entry in storyteller_entries:
+    for idx, entry in selected_storyteller_entries:
+        print(f"Selected Entry IDs: {[entry.get('id') for _, entry in selected_storyteller_entries]}")
+
         entry_id = entry.get('id')  # Retrieve the 'id' from the bnn_history entry
 
         # Retrieve the ground truth labels and ethical scores using the 'id'
@@ -123,10 +176,13 @@ def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_label_list, a
 
         # Prepare the expected output tensor
         expected_output_tensor = torch.tensor(expected_output, dtype=torch.float32, device=device)
-        expected_output_tensor = expected_output_tensor.unsqueeze(0)  # Add batch dimension if necessary
 
-        # Compute ELBO loss for the current time step without optimization
-        loss = compute_elbo_loss(
+        # Add batch dimension if necessary
+        if len(expected_output_tensor.shape) == 1:  # Check if it lacks a batch dimension
+            expected_output_tensor = expected_output_tensor.unsqueeze(0)
+
+        # Compute BCE loss and retrieve predictions
+        loss, logits, probabilities = compute_bce_loss(
             bnn,
             bnn_history[:idx + 1],  # Pass the history up to the current index
             expected_output_tensor,
@@ -136,11 +192,6 @@ def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_label_list, a
         total_loss += loss
         num_entries += 1
 
-        # Perform a forward pass to get predictions
-        with torch.no_grad():
-            logits = bnn.forward(bnn_history[:idx + 1], current_index=idx, device=device)
-            probabilities = torch.sigmoid(logits)
-
         # Record the decision made by the genome at this time step
         chosen_action = torch.argmax(probabilities).item()
         decision_history.append(chosen_action)
@@ -149,6 +200,7 @@ def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_label_list, a
         ethical_score = ethical_scores[chosen_action]
         ethical_score_history.append(ethical_score)
 
+    print("Num Entries (in evaluate_genome()): ", num_entries)
     if num_entries > 0:
         average_loss = total_loss / num_entries
     else:
@@ -163,11 +215,25 @@ def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_label_list, a
     genome.decision_history = decision_history
     genome.ethical_score_history = ethical_score_history
 
+    print(f"Average Loss: {average_loss}")
+    print(f"Genome Fitness: {fitness}")
+    print(f"Decision History: {decision_history[:5]}")
+    print(f"Ethical Score History: {ethical_score_history[:5]}")
+
     return fitness
 
 def evaluate_genome_remote(genome_id, genome, config, bnn_history, ground_truth_labels, attention_layers, ethical_ground_truths):
+    global rank, local_rank  # Access global variables
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Genome {genome_id} - Rank {rank}, Local Rank {local_rank}, using device {device}")
+
+    if torch.cuda.is_available():
+        print(f"Genome {genome_id} - Rank {rank}, Local Rank {local_rank} - Visible GPUs: {torch.cuda.device_count()}")
+        print(f"Genome {genome_id} - Active CUDA Device: {torch.cuda.current_device()}")
+        print(f"Genome {genome_id} - CUDA Device Name: {torch.cuda.get_device_name(torch.cuda.current_device())}")
+    else:
+        print(f"Genome {genome_id} - No CUDA device available. Falling back to CPU.")
 
     try:
         start_time = time.time()
@@ -204,6 +270,15 @@ def evaluate_genome_remote(genome_id, genome, config, bnn_history, ground_truth_
 
         end_time = time.time()
         elapsed_time = end_time - start_time
+        comm = None
+        rank = 0  # Simulate being the first process
+        size = 1  # Simulate a single process
+
+        # Simulate a single GPU setup
+        local_rank = 0
+        num_gpus_per_node = 1  # Set to the number of GPUs you want to simulate
+        gpu_id = local_rank % num_gpus_per_node
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
         print(f"Genome {genome_id} - Evaluation Time: {elapsed_time:.2f} seconds")
 
     except Exception as e:
@@ -381,7 +456,11 @@ class NeatEvolution:
         else:
             data = None
 
-        bnn_history, ground_truth_labels, attention_layers, ethical_ground_truths = comm.bcast(data, root=0)
+        if comm is not None:
+            bnn_history, ground_truth_labels, attention_layers, ethical_ground_truths = comm.bcast(data, root=0)
+        else:
+            # Single-process case: Use `data` directly
+            bnn_history, ground_truth_labels, attention_layers, ethical_ground_truths = data
 
         # Convert genomes to list and create genome_dict
         genomes = list(genomes)
@@ -399,7 +478,29 @@ class NeatEvolution:
 
         # Evaluate local genomes
         local_results = []
+
+        # Determine the top-performing genomes if needed
+        if k > 5:
+            sorted_genomes = sorted(local_genomes, key=lambda g: g[1].fitness, reverse=True)
+            top_percentage = 0.2  # Top 20%
+            top_count = int(len(sorted_genomes) * top_percentage)
+            top_genome_ids = {g[0] for g in sorted_genomes[:top_count]}  # Set of top genome IDs
+
+
         for genome_id, genome in local_genomes:
+            if k <= 5:  # Early exploration phase
+                genome.evaluation_window = 5
+            elif 5 < k <= 15:  # Intermediate phase
+                if genome_id in top_genome_ids:
+                    genome.evaluation_window = 10
+                else:
+                    genome.evaluation_window = 5
+            elif k > 15:  # Later phase with more refined genomes
+                if genome_id in top_genome_ids:
+                    genome.evaluation_window = 15
+                else:
+                    genome.evaluation_window = 5
+
             genome_id, fitness = evaluate_genome_remote(genome_id, genome, config, bnn_history, ground_truth_labels, attention_layers, ethical_ground_truths)
             local_results.append((genome_id, fitness))
 
@@ -478,7 +579,8 @@ class NeatEvolution:
             continue_evolution = None
 
         # Broadcast the decision to all processes
-        continue_evolution = comm.bcast(continue_evolution, root=0)
+        if comm is not None:
+            continue_evolution = comm.bcast(continue_evolution, root=0)
 
         return continue_evolution
 
