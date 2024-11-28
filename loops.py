@@ -26,6 +26,7 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
 
     # Summary for items not covered by bnn_history
     summary = {
+        "game_number": None,
         "ground_truth_labels": [],
         "ethical_scores": [],
         "decision_data": [],
@@ -171,19 +172,18 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
         "bottom_5_losses": sorted(losses)[:5]
     }
     summary["loss_summary"] = loss_summary
-    summary["decision_data"] = decision_data
+    summary["decision_details"] = decision_details
 
     # Return the combined responses (either complete after 50 loops or if the exit code was received)
     return summary, strong_bnn, bnn_history, ground_truth_label_list, ethical_ground_truths, gen_loss_history, gen_ethical_history, loop_counter, global_counter
 
-def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, ground_truth_label_list, ethical_ground_truths, gen_loss_history, gen_ethical_history, strong_bnn, config, num_gens, neat_trainer):
+def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, ground_truth_label_list, ethical_ground_truths, gen_loss_history, gen_ethical_history, strong_bnn, config, num_gens, neat_trainer, global_counter):
     pyro.clear_param_store()
     config_path = "config-feedforward"
     counter = 1
     generational_history = []
     rounds_survived_history = dict()
     total_iterations = 1
-    global_counter = 0
 
     # Overall summary to accumulate results
     overall_summary = {
@@ -192,7 +192,8 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
         "ethical_ground_truths": [],
         "ground_truth_labels": [],
         "loss_history": [],
-        "bnn_history": None
+        "bnn_history": None,
+        "detailed_gen_data": []
     }
 
     while counter <= num_gens:
@@ -206,6 +207,9 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
             ground_truth_label_list, ethical_ground_truths, gen_loss_history, gen_ethical_history,
             strong_bnn, config, global_counter
         )
+
+        summary["game_number"] = counter
+        overall_summary["detailed_gen_data"].append(summary)
 
         # Store summary data
         overall_summary["rounds_survived_history"][f"Generation {counter}"] = loop_counter

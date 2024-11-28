@@ -38,7 +38,7 @@ class BayesianNN(nn.Module):
         self.value_proj = nn.Linear(self.input_size, self.input_size).to(device)
 
         self.optimizer = Adam({"lr": lr})
-        self.num_particles = 100 
+        self.num_particles = 5 
 
         self.svi = SVI(self.model, self.guide, self.optimizer, loss=Trace_ELBO(num_particles=self.num_particles, vectorize_particles=True))
 

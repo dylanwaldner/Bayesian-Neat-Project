@@ -80,8 +80,10 @@ if __name__ == "__main__":
 
     num_gens = 1
 
+    global_counter = 0
+
     # Call the loop logic directly without Gradio
-    result, gen_loss_history, gen_ethical_history, ethical_ground_truths, survival_ground_truths = generational_driver(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, ground_truth_label_list, ethical_ground_truths, gen_loss_history, gen_ethical_history, strong_bnn, config, num_gens, neat_trainer)
+    result, gen_loss_history, gen_ethical_history, ethical_ground_truths, survival_ground_truths = generational_driver(votes, max_tokens, temperature, top_p, danger, shared_history, bnn_history, ground_truth_label_list, ethical_ground_truths, gen_loss_history, gen_ethical_history, strong_bnn, config, num_gens, neat_trainer, global_counter)
 
     print("Experiment complete. Results saved.")
 
