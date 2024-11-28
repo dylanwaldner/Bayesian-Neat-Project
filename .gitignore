@@ -9,6 +9,8 @@
 *.sub
 *.sh
 *.swp
+*.pth
+*.slurm
 neat-python/
 dummy_profile.sh
 app.sh
