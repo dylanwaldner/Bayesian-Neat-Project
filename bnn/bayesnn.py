@@ -37,7 +37,9 @@ class BayesianNN(nn.Module):
         self.key_proj = nn.Linear(self.input_size, self.input_size).to(device)
         self.value_proj = nn.Linear(self.input_size, self.input_size).to(device)
 
-        self.optimizer = Adam({"lr": lr})
+        self.learning_rate = lr
+
+        self.optimizer = Adam({"lr": self.learning_rate})
         self.num_particles = 5 
 
         self.batch_indices = []
@@ -836,7 +838,7 @@ class BayesianNN(nn.Module):
         # Perform one step of SVI training
         try:
             loss = self.svi.step(x_data, y_data)
-            print("LOSS: ", total_loss)
+            print("LOSS: ", loss)
         except ValueError as e:
             print("ValueError in svi_step:", e)
             raise

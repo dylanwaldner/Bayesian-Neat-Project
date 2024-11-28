@@ -10,7 +10,6 @@ print("RIGHT DIRECTORY")
 # Add the current directory to sys.path explicitly
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:False"
 
-import ray
 import json
 import torch
 import re
@@ -47,7 +46,7 @@ if __name__ == "__main__":
     max_tokens = 10240
     temperature = 1.2
     top_p = 0.95
-    danger = 10
+    danger = 2
 
     pyro.enable_validation(False)
 
@@ -78,7 +77,7 @@ if __name__ == "__main__":
     gen_loss_history = []
     gen_ethical_history = []
 
-    num_gens = 2
+    num_gens = 1
 
     global_counter = 0
 

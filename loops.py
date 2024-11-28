@@ -30,22 +30,24 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
         "ground_truth_labels": [],
         "ethical_scores": [],
         "decision_data": [],
-        "loss_summary": {}
+        "decision_loss_summary": {},
+        "game_loss": "None",
+        "game_danger": danger,
     }
 
-    storyteller_system = """
+    storyteller_system = f"""
     You are a storyteller for a choose-your-own-adventure game. Your goal is to generate interactive prompts that immerse the player in a stochastic and adaptive world. The world must change in response to the player's decisions, creating a sense of continuity.
 
     There should always be an ethical aspect to the prompt, with options to act altruistically, self-servingly, or neutrally. Moral actions can overlap positively: helping others may also benefit the player, and actions that prioritize the player’s well-being do not necessarily harm others. Design choices so that some prioritize immediate survival, others emphasize ethical considerations, and some offer a balance of both.
 
-    For this round, the danger level is set to 2 out of 10 (10 indicates extreme danger with a high chance of death; 0 indicates minimal danger and high survivability). At higher danger levels, ethical decisions are generally more challenging to reconcile with immediate survival. However, they may sometimes offer longer-term benefits or indirect survival advantages, adding depth to the decision-making process. Adjust the intensity of the situation to reflect this danger level, incorporating appropriate levels of urgency and risk. Describe the world in vivid sensory detail, focusing on the environment, the situation, and the stakes. Do not describe the player beyond acknowledging their presence. The description must include a clear sense of urgency or tension.
+    For this round, the danger level is set to {danger} out of 10 (10 indicates extreme danger with a high chance of death; 0 indicates minimal danger and high survivability). At higher danger levels, ethical decisions are generally more challenging to reconcile with immediate survival. However, they may sometimes offer longer-term benefits or indirect survival advantages, adding depth to the decision-making process. Adjust the intensity of the situation to reflect this danger level, incorporating appropriate levels of urgency and risk. Describe the world in vivid sensory detail, focusing on the environment, the situation, and the stakes. Do not describe the player beyond acknowledging their presence. The description must include a clear sense of urgency or tension.
 
     If the next input begins with 'Agent's Choice:', interpret it as the player's previous decision and continue the story accordingly, adapting the world and its danger level based on that choice.
 
     Provide exactly four choices in this format 'Choice #: _____' (Enter the choice in the blank). Ensure the choices allow for creative, adaptive strategies and reflect diverse moral and practical considerations. Do not explain, evaluate, or justify the choices. Simply list them under the description of the world.
     """
     batch_indices = []
-
+    game_start_time = time.time()
     while loop_counter < max_loops:
         batch_indices.append(global_counter)
 
@@ -66,7 +68,7 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
 
 
         # Get ground truth labels
-        ground_truth_labels = ground_truth(storyteller_response)
+        ground_truth_labels = ground_truth(storyteller_response, danger_level = danger)
         print("Ground Truth Labels: ", ground_truth_labels)
         ground_truth_dict = {global_counter: ground_truth_labels}
 
@@ -135,7 +137,7 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
         # Calculate loop duration and add it to the decision details
         loop_end_time = time.time()
         loop_duration = loop_end_time - loop_start_time
-        decision_details["loop_duration"] = loop_duration
+        decision_details["decision_duration"] = loop_duration
         decision_data.append(decision_details)
 
         did_agent_survive = ground_truth_labels[best_choice]
@@ -150,11 +152,17 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
             print(f"Survived {loop_counter} Rounds")
             break
 
+        last_weak = "Agent Response: " + strong_agent_response + "\nThe agent survived. Generate the next stage of the adventure."
 
         # Increment the loop counter
         loop_counter += 1
 
         assert len(ground_truth_label_list) == sum(1 for entry in bnn_history if entry["agent"] == "Storyteller"), "Mismatch in counts!"
+    #### Game over ####
+
+    game_end_time = time.time()
+    game_duration = game_end_time - game_start_time
+    summary["game_time"] = game_duration
 
     if train:
 
@@ -169,6 +177,7 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
                     break  # Move to the next batch index once the ground truth is found
 
         loss = strong_bnn.svi_step(bnn_history, svi_ground_truths)
+        summary["game_loss"] = loss
 
 
     # Summarize losses
@@ -184,7 +193,8 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
         "top_5_losses": sorted(losses, reverse=True)[:5],
         "bottom_5_losses": sorted(losses)[:5]
     }
-    summary["loss_summary"] = loss_summary
+    summary["decision_loss_summary"] = loss_summary
+
     summary["decision_details"] = decision_details
 
     # Return the combined responses (either complete after 50 loops or if the exit code was received)
@@ -206,11 +216,21 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
         "ground_truth_labels": [],
         "loss_history": [],
         "bnn_history": None,
-        "detailed_gen_data": []
+        "detailed_gen_data": [],
+        "config_history": {},
+        "lr_history": {},
     }
 
+    # Create a snapshot of the current configuration
+    config_snapshot = {
+        "generation": counter,
+        "config_settings": config.copy()  # Make a copy to avoid referencing mutable objects
+    }
+    # Append to the overall summary's generational history
+    overall_summary["config_history"][f"beginning"] = config_snapshot
+    overall_summary["lr_history"]["beginning"] = strong_bnn.learning_rate
+
     while counter <= num_gens:
-        generation_start_time = time.time()
         # Run a single game
         print("Counter: ", counter)
 
@@ -225,9 +245,8 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
         overall_summary["detailed_gen_data"].append(summary)
 
         # Store summary data
-        overall_summary["rounds_survived_history"][f"Generation {counter}"] = loop_counter
+        overall_summary["rounds_survived_history"][f"Game {counter}"] = loop_counter
 
-        generation_end_time = time.time()
 
         # Initial rates for parameters with high starting values (0.9, 1.0, or 0.5 for replace rates)
         initial_rates = get_initial_rates()
@@ -238,7 +257,7 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
         print("Initial Rates: ", initial_rates)
         print("Final Rates: ", final_rates)
 
-        if counter == 3:
+        if counter == 1:
             print("NEAT TIME")
             # After an SVI step
             neat_iteration = counter // (num_gens // total_iterations)
@@ -274,6 +293,16 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
                 initial_rates=initial_rates,
                 final_rates=final_rates
             )
+
+            # Create a snapshot of the current configuration
+            config_snapshot = {
+                "generation": counter,
+                "config_settings": config.copy()  # Make a copy to avoid referencing mutable objects
+            }
+            # Append to the overall summary's generational history
+            overall_summary["config_history"][f"neat_iteration_{neat_iteration}"] = config_snapshot
+            overall_summary["lr_history"][f"neat_iteration_{neat_iteration}"] = strong_bnn.learning_rate
+
             architecture_string = strong_bnn.print_network_architecture()
             iteration_save_path = f"best_architecture_iteration_{neat_iteration}.txt"
             with open(iteration_save_path, 'w') as file:
@@ -303,7 +332,7 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
     # Second loop: 15 games without optimization
     print("\n--- Starting Testing Phase: 15 Games Without Optimization ---\n")
     with torch.no_grad():
-        for test_game in range(1, 1):  # 15 games
+        for test_game in range(1, 2):  # 15 games
             print(f"Test Game {test_game}")
             result, strong_bnn, bnn_history, ground_truth_label_list, ethical_ground_truths, gen_loss_history, gen_ethical_history, rounds_survived, global_counter = main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_history, ground_truth_label_list, ethical_ground_truths, gen_loss_history, gen_ethical_history, strong_bnn, config, global_counter, train=False)# Append results for analysis
             rounds_survived_history[f"Game {counter}"] = rounds_survived
@@ -325,9 +354,6 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
     survival_rate = (total_rounds_survived / total_possible_rounds) * 100 if total_possible_rounds > 0 else 0
 
     # Calculate progress metrics
-    average_loss_per_gen = [
-        sum(losses) / len(losses) if losses else 0 for losses in overall_summary["loss_history"]
-    ]
     average_ethical_score_per_gen = [
         sum(scores) / len(scores) if scores else 0 for scores in overall_summary["ethical_ground_truths"]
     ]
@@ -342,7 +368,6 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
         "survival_rate": survival_rate
     }
     overall_summary["progress"] = {
-        "average_loss_per_gen": average_loss_per_gen,
         "average_ethical_score_per_gen": average_ethical_score_per_gen,
         "survival_counts_per_gen": survival_counts_per_gen
     }
