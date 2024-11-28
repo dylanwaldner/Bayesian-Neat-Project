@@ -40,6 +40,8 @@ class BayesianNN(nn.Module):
         self.optimizer = Adam({"lr": lr})
         self.num_particles = 5 
 
+        self.batch_indices = []
+
         self.svi = SVI(self.model, self.guide, self.optimizer, loss=Trace_ELBO(num_particles=self.num_particles, vectorize_particles=True))
 
         self.vectorize_particles = False
@@ -338,85 +340,72 @@ class BayesianNN(nn.Module):
         order.reverse()
         return order
 
-    def forward_svi(self, bnn_history, weights_samples, bias_samples, current_index=None, device=None):
+    def forward_svi(self, bnn_history, weights_samples, bias_samples, device=None):
         torch.autograd.set_detect_anomaly(True)
 
-        # Retrieve the device from the model's parameters
         if device is None:
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        if current_index is None:
-            if self.current_index is not None:
-                current_index = self.current_index
-            else:
-                current_index = len(bnn_history) - 1
-        else:
-            self.bnn_history = bnn_history
+        batch_indices = self.batch_indices
 
-        # Ensure self.input_matrix contains the full history only once
-        if len(bnn_history) > self.last_update_index:
-            self.update_matrix(self.bnn_history, current_index, device)
+        num_particles = next(iter(weights_samples.values())).shape[0]
+        batch_size = len(batch_indices)
+        input_size = self.input_matrix.size(1)
+        
 
-        # Prepare input matrix and mask
-        self.input_matrix = self.input_matrix.clone().detach().float().to(device)
-        mask = (self.input_matrix != -1).float().to(device)
-        masked_input = self.input_matrix * mask  # Shape: (full_sequence_length, input_size)
+        # Build id_to_last_index mapping
+        id_to_last_index = {}
+        for idx, entry in enumerate(self.bnn_history):
+            id = entry['id']
+            id_to_last_index[id] = idx
 
-        # Slice input based on current_index if provided
-        relevant_input = masked_input[:current_index + 1, :]  # Shape: (sequence_length, input_size)
-        mask = mask[:current_index + 1, :]
+        # Initialize combined_context tensor
+        combined_context_list = []
 
-        sequence_length, input_size = relevant_input.shape
+        # Loop over batch entries
+        for idx, batch_idx in enumerate(batch_indices):
+            # Get the last index in bnn_history for the current id
+            current_index = id_to_last_index[batch_idx]  # Correctly maps to the last index for this id
 
-        # Create storyteller mask
-        storyteller_mask = torch.tensor(
-            [entry['agent'] == "Storyteller" for entry in self.bnn_history[:current_index + 1]],
-            dtype=torch.bool,
-            device=device
-        )
+            # Prepare input matrix and mask for the current entry
+            relevant_input = self.input_matrix[:current_index + 1, :].clone().detach().float().to(device)
+            mask = (relevant_input != -1).float().to(device)
+            masked_input = relevant_input * mask  # Shape: (sequence_length, input_size)
 
-        # Compute combined context vector
-        combined_context = compute_attention(
-            relevant_input,
-            self.query_proj,
-            self.key_proj,
-            self.value_proj,
-            self.dropout,
-            storyteller_mask,
-            scaling_factor=0.3,
-            device=device
-        )  # Shape: (input_size,)
+            # Create storyteller mask
+            storyteller_mask = torch.tensor(
+                [entry['agent'] == "Storyteller" for entry in self.bnn_history[:current_index + 1]],
+                dtype=torch.bool,
+                device=device
+            )
 
-        print(f"Combined context shape after compute_attention: {combined_context.shape}")
+            # Compute combined context vector
+            combined_context = compute_attention(
+                masked_input,
+                self.query_proj,
+                self.key_proj,
+                self.value_proj,
+                self.dropout,
+                storyteller_mask,
+                scaling_factor=0.3,
+                device=device
+            )  # Shape: (input_size,)
 
-        combined_context = combined_context.squeeze()
-        print(f"Combined context shape after squeeze: {combined_context.shape}")
+            combined_context_list.append(combined_context.squeeze())  # Shape: (input_size,)
 
-
-        # Get number of particles from weights_samples
-        num_particles = next(iter(weights_samples.values())).shape[0]  # Assuming weights have shape [num_particles]
-        expected_weight_shape = [num_particles]
-        expected_activation_shape = [num_particles]
-
-        # Dummy sampling at the start of forward_svi
-        #dummy_sample_1 = pyro.sample("dummy_start_forward_svi", dist.Normal(0, 1))
-        #assert list(dummy_sample_1.shape) == [num_particles], \
-        #    f"Dummy sample at start of forward_svi has shape {dummy_sample_1.shape}, expected {[num_particles]}"
-
-
+        # Stack combined_contexts into a tensor
+        combined_context = torch.stack(combined_context_list, dim=0)  # Shape: (batch_size, input_size)
+        print(f"Combined context shape after stacking: {combined_context.shape}")
 
         # Expand combined_context to match num_particles
-        combined_context = combined_context.unsqueeze(0).expand(num_particles, -1)  # Shape: [num_particles, input_size]
-
+        combined_context = combined_context.unsqueeze(0).expand(num_particles, -1, -1)  # Shape: [num_particles, batch_size, input_size]
         print(f"Combined context shape after expand: {combined_context.shape}")
-
         # Initialize node activations using context vector for each input node
         node_activations = {}
         for idx, node_id in enumerate(self.input_indices):
-            input_value = combined_context[:, idx]  # Shape: [num_particles]
+            input_value = combined_context[:, :, idx]  # Shape: [num_particles, batch_size]
             node_activations[node_id] = input_value
-       
-        printed = False
+
         # Process nodes in topological order
         node_order = self.topological_sort()
         for node_id in node_order:
@@ -424,102 +413,49 @@ class BayesianNN(nn.Module):
                 continue  # Skip input nodes
 
             incoming_values = []
-            printed1 = False
             for conn_key, conn_data in self.connections.items():
                 in_node, out_node = conn_key
                 if out_node == node_id and conn_data['enabled']:
-                    weight = weights_samples[conn_key]  # Shape: [num_particles]
-                    if not printed1:
-                        print("Weight Shape: ", weight.shape)
-                    if in_node not in node_activations:
-                        print(f"Activation for node {in_node} not found in node_activations.")
-                        print(f"Current node_id: {node_id}")
-                        print(f"Available node_activations keys: {list(node_activations.keys())}")
-                        raise KeyError(f"Activation for node {in_node} is not available.")
-                    input_value = node_activations[in_node]  # Shape: [num_particles]
-                    if not printed1:
-                        print("Input Value Shape: ", input_value.shape)
+                    weight = weights_samples[conn_key][:, None]  # Shape: [num_particles, 1]
+                    input_value = node_activations[in_node]  # Shape: [num_particles, batch_size]
 
-                    # Ensure weight and input_value have the same shape
-                    incoming_value = weight * input_value  # Shape: [num_particles]
-                    if not printed1:
-                        print("Incoming Value Shape: ", incoming_value.shape)
+                    # Expand weight to match batch_size
+                    incoming_value = weight * input_value  # Shape: [num_particles, batch_size]
                     incoming_values.append(incoming_value)
-                    # Dummy sampling after combining weights and inputs
-                    #dummy_sample_2 = pyro.sample(f"dummy_after_{conn_key}_combine", dist.Normal(0, 1))
-                    #assert list(dummy_sample_2.shape) == [num_particles], \
-                     #   f"Dummy sample after combining {conn_key} has shape {dummy_sample_2.shape}, expected {[num_particles]}"
-
-                printed1 = True
 
             # Apply the node's aggregation function
             if incoming_values:
-                stacked_values = torch.stack(incoming_values, dim=-1)  # Shape: [num_particles, num_incoming]
-
-                # Dummy sampling after stacking
-                #dummy_sample_3 = pyro.sample(f"dummy_after_stack_{node_id}", dist.Normal(0, 1))
-                #assert list(dummy_sample_3.shape) == [num_particles], \
-                #    f"Dummy sample after stacking for node {node_id} has shape {dummy_sample_3.shape}, expected {[num_particles]}"
-
-
-                if not printed:
-                    print("Stacked Values Shape: ", stacked_values.shape)
+                stacked_values = torch.stack(incoming_values, dim=-1)  # Shape: [num_particles, batch_size, num_incoming]
                 aggregation_func = self.nodes[node_id].get('aggregation_func', torch.sum)
                 # Handle functions that return (values, indices), like max and min
                 if aggregation_func in [torch.max, torch.min]:
-                    total_input, _ = aggregation_func(stacked_values, dim=-1)  # Shape: [num_particles]
+                    total_input, _ = aggregation_func(stacked_values, dim=-1)  # Shape: [num_particles, batch_size]
                 elif aggregation_func == torch.prod:
-                    # Clone the tensor before using torch.prod to avoid in-place modification errors
-                    total_input = aggregation_func(stacked_values.clone(), dim=-1)  # Shape: [num_particles]
+                    total_input = aggregation_func(stacked_values, dim=-1)  # Shape: [num_particles, batch_size]
                 else:
-                    total_input = aggregation_func(stacked_values, dim=-1)  # Shape: [num_particles]
-                if not printed:
-                    print("Total Input Shape After Aggregation: ", total_input.shape)
+                    total_input = aggregation_func(stacked_values, dim=-1)  # Shape: [num_particles, batch_size]
             else:
-                total_input = torch.zeros(num_particles, device=device)  # Shape: [num_particles]
+                total_input = torch.zeros(num_particles, batch_size, device=device)  # Shape: [num_particles, batch_size]
 
             # Add bias
-            if not printed:
-                print("Total Input Shape Before Bias: ", total_input.shape)
+            bias = bias_samples.get(node_id, torch.zeros(num_particles, device=device))[:, None]  # Shape: [num_particles, 1]
 
-            bias = bias_samples.get(node_id, torch.zeros(num_particles, device=device))  # Shape: [num_particles]
-            if not printed:
-                print("Bias Shape: ", bias.shape)
-            total_input = total_input + bias  # Shape: [num_particles]
-            if not printed:
-                print("Total Input Shape After Bias: ", total_input.shape)
+            total_input = total_input + bias  # Shape: [num_particles, batch_size]
 
             # Apply activation function
             if node_id in self.output_nodes:
-                activation = total_input  # Shape: [num_particles]
+                activation = total_input  # Shape: [num_particles, batch_size]
             else:
                 activation_func = self.nodes[node_id].get('activation_func', torch.relu)
-                activation = activation_func(total_input)  # Shape: [num_particles]
+                activation = activation_func(total_input)  # Shape: [num_particles, batch_size]
 
-            if not printed:
-                print("Activation Shape: ", activation.shape)
-
-            # Check for NaNs
-            if torch.isnan(activation).any():
-                print(f"NaN detected in activation of node {node_id}")
-                raise ValueError("NaN detected in activation.")
-
-            node_activations[node_id] = activation  # Shape: [num_particles]
-            printed = True
+            node_activations[node_id] = activation  # Shape: [num_particles, batch_size]
 
         # Collect outputs
-        outputs = torch.stack([node_activations[node_id] for node_id in self.output_nodes], dim=1)  # Shape: [num_particles, num_outputs]
-        assert outputs.dim() <= 2, \
-            f"Unexpected outputs shape: {outputs.shape}"
-
-        # Final dummy sampling
-        #dummy_sample_4 = pyro.sample("dummy_end_forward_svi", dist.Normal(0, 1))
-        #assert list(dummy_sample_4.shape) == [num_particles], \
-        #    f"Dummy sample at end of forward_svi has shape {dummy_sample_4.shape}, expected {[num_particles]}"
-
+        outputs = torch.stack([node_activations[node_id] for node_id in self.output_nodes], dim=-1)  # Shape: [num_particles, batch_size, num_outputs]
         print("OUTPUTS SHAPE: ", outputs.shape)
-        outputs = outputs.to(device)  # Ensure outputs are on the correct device
 
+        outputs = outputs.to(device)  # Ensure outputs are on the correct device
         outputs = outputs.float()
         return outputs
 
@@ -705,108 +641,83 @@ class BayesianNN(nn.Module):
         if not hasattr(self, "prepared_weights"):
             self.prepare_weights()
 
-        x_data = x_data.to(device, dtype=torch.float32)
-        y_data = y_data.to(device, dtype=torch.float32)
+        x_data = x_data.to(device, dtype=torch.float32)  # Shape: [batch_size, input_size]
+        y_data = y_data.to(device, dtype=torch.float32)  # Shape: [batch_size, num_outputs]
         if y_data.dim() == 1:
-            y_data = y_data.unsqueeze(0)  # Adjust y_data shape to [1, num_outputs]
+            y_data = y_data.unsqueeze(1)  # Adjust y_data shape to [batch_size, num_outputs]
 
+        batch_size = y_data.size(0)
         num_particles = self.num_particles
 
         # Sample weights and biases inside the particles plate
-        with pyro.plate("particles", num_particles, dim=-2):
-            expected_weight_shape = torch.Size([num_particles])
-            # Dummy sampling at the start of plate
-            #dummy_sample_1 = pyro.sample("dummy_start", dist.Normal(0, 1))
-            #assert list(dummy_sample_1.shape) == [num_particles], \
-            #    f"Dummy sample at start of plate has shape {dummy_sample_1.shape}, expected {[num_particles]}"
-
+        with pyro.plate("particles", num_particles, dim=-3):
+            expected_sample_shape = torch.Size([num_particles])
             # Sample weights
-            sampled_weights = {}
             printed = False
+            sampled_weights = {}
             for conn_key, prepared_data in self.prepared_weights.items():
-                weight_mu = torch.tensor(prepared_data["mu"], dtype=torch.float32, device=device)
-                weight_sigma = torch.tensor(prepared_data["sigma"], dtype=torch.float32, device=device).clamp(min=1e-5)
+                weight_mu = prepared_data["mu"]
+                weight_sigma = prepared_data["sigma"]
                 weight_samples = pyro.sample(f"w_{conn_key}", dist.Normal(weight_mu, weight_sigma))
+                if not printed:
+                    print("Weights sample in model: ", weight_samples.shape) 
+                    printed = True
 
-                max_attempts = 10  # Safeguard to avoid infinite loops
-                attempts = 0
-
-                if weight_samples.shape != expected_weight_shape:
+                if weight_samples.shape != expected_sample_shape:
                     # Squeeze out singleton dimensions
                     weight_samples = weight_samples.squeeze()
-                    
+
                     # Handle specific cases for shape corrections
                     if weight_samples.shape == (num_particles, num_particles):
                         weight_samples = weight_samples[..., 0]  # Select the first "list" of samples
                     elif weight_samples.shape == (num_particles, num_particles, num_particles):
                         weight_samples = weight_samples[..., 0, 0]  # Select the first "list" of samples
 
-                    attempts += 1
-                    if attempts >= max_attempts:
-                        raise ValueError(f"Unable to reshape weight_samples to {expected_weight_shape} after {max_attempts} attempts. Weights shape = {weights_samples.shape}")
-
-                if not printed:
-                    print("Weight sample in model: ", weight_samples)
-                    printed = True
-                assert weight_samples.shape == expected_weight_shape, \
-                    print(f"Unexpected shape for weight {conn_key}: {weight_samples.shape}, expected: {expected_weight_shape}")
+                assert weight_samples.shape == expected_sample_shape, \
+                    print(f"Unexpected shape for weight {conn_key}: {weight_samples.shape}, expected: {expected_sample_shape}")
 
                 sampled_weights[conn_key] = weight_samples  # Shape: [num_particles]
 
-
-
             # Sample biases
-            printed = False
             sampled_biases = {}
             for node_id, node_data in self.nodes.items():
                 bias_mu = torch.tensor(node_data["bias_mu"], dtype=torch.float32, device=device)
                 bias_sigma = torch.tensor(node_data["bias_sigma"], dtype=torch.float32, device=device).clamp(min=1e-5)
-
                 bias_samples = pyro.sample(f"b_{node_id}", dist.Normal(bias_mu, bias_sigma))
 
-                max_attempts = 10  # Safeguard to avoid infinite loops
-                attempts = 0
-
-                if bias_samples.shape != expected_weight_shape:
+                if bias_samples.shape != expected_sample_shape:
                     # Squeeze out singleton dimensions
                     bias_samples = bias_samples.squeeze()
-     
+
                     # Handle specific cases for shape corrections
                     if bias_samples.shape == (num_particles, num_particles):
                         bias_samples = bias_samples[..., 0]  # Select the first "list" of samples
                     elif bias_samples.shape == (num_particles, num_particles, num_particles):
                         bias_samples = bias_samples[..., 0, 0]  # Select the first "list" of samples
 
-                    attempts += 1
-                    if attempts >= max_attempts:
-                        raise ValueError(f"Unable to reshape bias_samples to {expected_weight_shape} after {max_attempts} attempts. Bias shape = {bias_samples.shape}")
-                if not printed:
-                    print("Bias sample in model: ", bias_samples)
-                    printed = True
-                assert bias_samples.shape == expected_weight_shape, \
-                    print(f"Unexpected shape for bias {node_id}: {bias_samples.shape}, expected: {expected_weight_shape}")
+                assert bias_samples.shape == expected_sample_shape, \
+                    print(f"Unexpected shape for bias {node_id}: {bias_samples.shape}, expected: {expected_sample_shape}")
 
                 sampled_biases[node_id] = bias_samples  # Shape: [num_particles]
 
-            # Proceed with forward pass
-            logits = self.forward_svi(
-                self.bnn_history,
-                weights_samples=sampled_weights,
-                bias_samples=sampled_biases
-            ).to(device)  # Shape: [num_particles, num_outputs]
+            # Now process the data inside a data plate
+            with pyro.plate("data", batch_size, dim=-2):
+                # Proceed with forward pass
+                logits = self.forward_svi(
+                    self.bnn_history,
+                    weights_samples=sampled_weights,
+                    bias_samples=sampled_biases
+                ).to(device)  # Shape: [num_particles, batch_size, num_outputs]
 
-            self.model_output = logits.mean(dim=0)
+                self.model_output = logits.mean(0) # Not sure how to handle this yet,shape = [batch_size, 4]?
 
-            # Expand y_data to match logits shape
-            y_data_expanded = y_data.expand(num_particles, -1)  # Shape: [num_particles, num_outputs]
-            assert list(y_data_expanded.shape) == list(logits.shape), \
-                print(f"Unexpected shape for expanded y_data: {y_data_expanded.shape}, expected: {logits.shape}")
+                # Expand y_data to match logits shape
+                y_data_expanded = y_data.unsqueeze(0).expand(num_particles, -1, -1)  # Shape: [num_particles, batch_size, num_outputs]
+                assert list(y_data_expanded.shape) == list(logits.shape), \
+                    print(f"Unexpected shape for expanded y_data: {y_data_expanded.shape}, expected: {logits.shape}")
 
-            print(f"logits shape = {logits.shape}, y_data_expanded shape = {y_data_expanded.shape}")
-
-
-            # Sample the observations
-            pyro.sample("obs", dist.Bernoulli(logits=logits), obs=y_data_expanded)
+                # Sample the observations
+                pyro.sample("obs", dist.Bernoulli(logits=logits).to_event(2), obs=y_data_expanded)
 
 
     def guide(self, x_data, y_data):
@@ -814,19 +725,8 @@ class BayesianNN(nn.Module):
 
         # Register parameters
         for conn_key in self.connections:
-            weight_mu_value = self.connections[conn_key]['weight_mu']
-            weight_sigma_value = self.connections[conn_key]['weight_sigma']
-
-            # Ensure weight_mu_value and weight_sigma_value are scalars
-            if isinstance(weight_mu_value, (list, np.ndarray, torch.Tensor)) and len(weight_mu_value) == 1:
-                print("Readjusting weight mu guide")
-                weight_mu_value = weight_mu_value[0]
-            if isinstance(weight_sigma_value, (list, np.ndarray, torch.Tensor)) and len(weight_sigma_value) == 1:
-                print("Readjusting weight sigma guide")
-                weight_sigma_value = weight_sigma_value[0]
-
-            weight_mu_value = float(weight_mu_value)
-            weight_sigma_value = float(weight_sigma_value)
+            weight_mu_value = float(self.connections[conn_key]['weight_mu'])
+            weight_sigma_value = float(self.connections[conn_key]['weight_sigma'])
 
             # Assertions to ensure the parameters are scalars
             assert isinstance(weight_mu_value, float), f"weight_mu for {conn_key} is not a scalar. Got: {type(weight_mu_value)}"
@@ -850,18 +750,8 @@ class BayesianNN(nn.Module):
                 f"weight_sigma_param for {conn_key} has unexpected shape {weight_sigma_param.shape}, expected scalar []"
 
         for node_id in self.nodes:
-            bias_mu_value = self.nodes[node_id]['bias_mu']
-            bias_sigma_value = self.nodes[node_id]['bias_sigma']
-
-            if isinstance(bias_mu_value, (list, np.ndarray, torch.Tensor)) and len(bias_mu_value) == 1:
-                print("Readjusting bias mu guide")
-                bias_mu_value = bias_mu_value[0]
-            if isinstance(bias_sigma_value, (list, np.ndarray, torch.Tensor)) and len(bias_sigma_value) == 1:
-                print("Readjusting bias sigma guide")
-                bias_sigma_value = bias_sigma_value[0]
-
-            bias_mu_value = float(bias_mu_value)
-            bias_sigma_value = float(bias_sigma_value)
+            bias_mu_value = float(self.nodes[node_id]['bias_mu'])
+            bias_sigma_value = float(self.nodes[node_id]['bias_sigma'])
 
             bias_mu_param = pyro.param(
                 f"b_mu_{node_id}",
@@ -880,71 +770,53 @@ class BayesianNN(nn.Module):
                 f"bias_sigma_param for {node_id} has unexpected shape {bias_sigma_param.shape}, expected scalar []"
 
 
-
-        # Sample weights and biases outside any plate
-        with pyro.plate("particles", num_particles, dim=-2):
+        # Sample weights and biases inside the particles plate
+        with pyro.plate("particles", num_particles, dim=-3):
+            expected_sample_shape = torch.Size([num_particles])
             # Sample weights
             printed = False
             for conn_key in self.connections:
                 weight_mu = pyro.param(f"w_mu_{conn_key}")
                 weight_sigma = pyro.param(f"w_sigma_{conn_key}")
-                weight_sample = pyro.sample(f"w_{conn_key}", dist.Normal(weight_mu, weight_sigma))
-                expected_sample_shape = torch.Size([num_particles] + list(weight_mu.shape))
+                weight_samples = pyro.sample(f"w_{conn_key}", dist.Normal(weight_mu, weight_sigma))
 
-                max_attempts = 10  # Safeguard to avoid infinite loops
-                attempts = 0
-
-                if weight_sample.shape != expected_sample_shape:
+                if weight_samples.shape != expected_sample_shape:
                     # Squeeze out singleton dimensions
-                    weight_sample = weight_sample.squeeze()
+                    weight_samples = weight_samples.squeeze()
 
                     # Handle specific cases for shape corrections
-                    if weight_sample.shape == (num_particles, num_particles):
-                        weight_sample = weight_sample[..., 0]  # Select the first "list" of samples
-                    elif weight_sample.shape == (num_particles, num_particles, num_particles):
-                        weight_sample = weight_sample[..., 0, 0]  # Select the first "list" of samples
-
-                    attempts += 1
-                    if attempts >= max_attempts:
-                        raise ValueError(f"Unable to reshape weight_sample to {expected_sample_shape} after {max_attempts} attempts. Weights shape = {weight_sample.shape}")
+                    if weight_samples.shape == (num_particles, num_particles):
+                        weight_samples = weight_samples[..., 0]  # Select the first "list" of samples
+                    elif weight_samples.shape == (num_particles, num_particles, num_particles):
+                        weight_samples = weight_samples[..., 0, 0]  # Select the first "list" of samples
 
                 if not printed:
-                    print(f"Weight sample for conn {conn_key} in guide: ", weight_sample)
+                    print("Weights sample in model: ", weight_samples.shape)
                     printed = True
-                assert weight_sample.shape == expected_sample_shape, \
-                    f"Weight sample for {conn_key} has unexpected shape {weight_sample.shape}, expected {expected_sample_shape}, weight_mu shape = {weight_mu.shape}, weight_sigma shape = {weight_sigma.shape}. "
+
+                assert weight_samples.shape == expected_sample_shape, \
+                    print(f"Unexpected shape for weight {conn_key}: {weight_samples.shape}, expected: {expected_sample_shape}")
 
             # Sample biases
-            printed = False
             for node_id in self.nodes:
                 bias_mu = pyro.param(f"b_mu_{node_id}")
                 bias_sigma = pyro.param(f"b_sigma_{node_id}")
-                bias_sample = pyro.sample(f"b_{node_id}", dist.Normal(bias_mu, bias_sigma))
-                expected_sample_shape = torch.Size([num_particles] + list(weight_mu.shape))
+                bias_samples = pyro.sample(f"b_{node_id}", dist.Normal(bias_mu, bias_sigma))
 
-                max_attempts = 10  # Safeguard to avoid infinite loops
-                attempts = 0
-
-                if bias_sample.shape != expected_sample_shape:
+                if bias_samples.shape != expected_sample_shape:
                     # Squeeze out singleton dimensions
-                    bias_sample = bias_sample.squeeze()
+                    bias_samples = bias_samples.squeeze()
 
                     # Handle specific cases for shape corrections
-                    if bias_sample.shape == (num_particles, num_particles):
-                        bias_sample = bias_sample[..., 0]  # Select the first "list" of samples
-                    elif bias_sample.shape == (num_particles, num_particles, num_particles):
-                        bias_sample = bias_sample[..., 0, 0]  # Select the first "list" of samples
+                    if bias_samples.shape == (num_particles, num_particles):
+                        bias_samples = bias_samples[..., 0]  # Select the first "list" of samples
+                    elif bias_samples.shape == (num_particles, num_particles, num_particles):
+                        bias_samples = bias_samples[..., 0, 0]  # Select the first "list" of samples
 
-                    attempts += 1
-                    if attempts >= max_attempts:
-                        raise ValueError(f"Unable to reshape bias_sample to {expected_sample_shape} after {max_attempts} attempts. Bias shape = {bias_sample.shape}")
+                assert bias_samples.shape == expected_sample_shape, \
+                    print(f"Unexpected shape for bias {node_id}: {bias_samples.shape}, expected: {expected_sample_shape}")
 
-                if not printed:
-                    print(f"Bias sample for {node_id} in guide: ", bias_sample)
-                    printed = True
-                # Assertions for sampled biases
-                assert bias_sample.shape == expected_sample_shape, \
-                    f"Bias sample for {node_id} has unexpected shape {bias_sample.shape}, expected {expected_sample_shape}"
+
 
     def svi_step(self, bnn_history, ground_truth):
         if len(bnn_history) > self.last_update_index:
@@ -954,14 +826,17 @@ class BayesianNN(nn.Module):
         self.bnn_history = bnn_history
         self.vectorize_particles = True  # Enable vectorized particles
 
+        # Determine the current batch size
+        batch_size = len(ground_truth)
+
         # x_data is a dummy variable; can be None or adjusted if necessary
-        x_data = torch.empty((1, self.input_size), device=device).fill_(-1)
+        x_data = torch.empty((batch_size, self.input_size), device=device).fill_(-1)
         y_data = torch.tensor(ground_truth, dtype=torch.float32).to(device)
 
         # Perform one step of SVI training
         try:
             loss = self.svi.step(x_data, y_data)
-            print("LOSS: ", loss)
+            print("LOSS: ", total_loss)
         except ValueError as e:
             print("ValueError in svi_step:", e)
             raise
@@ -969,9 +844,7 @@ class BayesianNN(nn.Module):
         self.current_index = None
         self.vectorize_particles = False  # Reset after SVI step
 
-        choice_probabilities = torch.sigmoid(self.model_output)
-
-        return loss, choice_probabilities
+        return loss
 
     def get_optimized_parameters(self):
         optimized_params = {}

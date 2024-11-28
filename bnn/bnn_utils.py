@@ -53,6 +53,7 @@ def update_bnn_history(response, agent, bnn_history, max_length, temperature, to
         response_embedding.extend([-1] * 1536 * 4)
         #response_emotion_score = emotion_rating(response, agent, max_length, 0.1, top_p)
         bnn_history.append({
+            "id": global_counter,
             "agent": agent,
             "response": response,
             "response_embedding": response_embedding,

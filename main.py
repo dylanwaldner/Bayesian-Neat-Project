@@ -78,7 +78,7 @@ if __name__ == "__main__":
     gen_loss_history = []
     gen_ethical_history = []
 
-    num_gens = 1
+    num_gens = 2
 
     global_counter = 0
 

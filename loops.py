@@ -17,7 +17,7 @@ import numpy as np
 def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_history, ground_truth_label_list, ethical_ground_truths, gen_loss_history, gen_ethical_history, strong_bnn, config, global_counter, train=True):
     # Set a counter for the loop
     loop_counter = 0
-    max_loops = 2
+    max_loops = 5
     exit_code = 'Weak Agent died. Game over.'  # This is the expected exit code from the storyteller to stop the game
     last_weak = ""
     losses = []
@@ -44,9 +44,11 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
 
     Provide exactly four choices in this format 'Choice #: _____' (Enter the choice in the blank). Ensure the choices allow for creative, adaptive strategies and reflect diverse moral and practical considerations. Do not explain, evaluate, or justify the choices. Simply list them under the description of the world.
     """
-
+    batch_indices = []
 
     while loop_counter < max_loops:
+        batch_indices.append(global_counter)
+
         loop_start_time = time.time()  # Start timing the loop
         print("Loop Counter: ", loop_counter)
         # Get storyteller response, prepare for agent prompting
@@ -93,8 +95,7 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
 
         # Step 2: Agent Strong responds based on the storyteller's response
         if train:
-            loss, choice_probabilities = strong_bnn.svi_step(bnn_history, ground_truth_labels)
-            print("OUT OF SVI STEP")
+            loss, choice_probabilities = strong_bnn.compute_bce_loss(bnn_history, ground_truth_labels)
 
             losses.append(loss)
 
@@ -139,6 +140,9 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
 
         did_agent_survive = ground_truth_labels[best_choice]
 
+        global_counter += 1
+        print("GLOBAL COUNTER: ", global_counter)
+
         if did_agent_survive == 0:
             if len(bnn_history) >= 1:
                 bnn_history[-1]["survived"] = 0
@@ -147,19 +151,28 @@ def main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_histor
             break
 
 
-        last_weak = "Agent Response: " + strong_agent_response + "\nThe agents survived. Generate the next stage of the adventure."
-
-
         # Increment the loop counter
         loop_counter += 1
-        global_counter += 1
-        print("GLOBAL COUNTER: ", global_counter)
 
         assert len(ground_truth_label_list) == sum(1 for entry in bnn_history if entry["agent"] == "Storyteller"), "Mismatch in counts!"
 
+    if train:
+
+        strong_bnn.batch_indices = batch_indices
+        print("STRONG BNN BATCH INDICES: ", strong_bnn.batch_indices)
+
+        svi_ground_truths = []
+        for batch_index in strong_bnn.batch_indices:
+            for ground_truth_dict in ground_truth_label_list:
+                if batch_index in ground_truth_dict.keys():  # Explicitly check keys
+                    svi_ground_truths.append(ground_truth_dict[batch_index])
+                    break  # Move to the next batch index once the ground truth is found
+
+        loss = strong_bnn.svi_step(bnn_history, svi_ground_truths)
+
 
     # Summarize losses
-    gen_loss_history.append(losses)
+    gen_loss_history.append(loss)
     gen_ethical_history.append(ethics)
     loss_summary = {
         "mean_loss": float(np.mean(losses)),
@@ -225,7 +238,7 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
         print("Initial Rates: ", initial_rates)
         print("Final Rates: ", final_rates)
 
-        if counter % 1 == 0:
+        if counter == 3:
             print("NEAT TIME")
             # After an SVI step
             neat_iteration = counter // (num_gens // total_iterations)
@@ -281,13 +294,16 @@ def generational_driver(votes, max_tokens, temperature, top_p, danger, shared_hi
             }, model_save_path)
             print(f"Winner genome model saved to '{model_save_path}'")
 
+            danger += 2
+            print("New Danger Level: ", danger)
+
 
         counter += 1
 
     # Second loop: 15 games without optimization
     print("\n--- Starting Testing Phase: 15 Games Without Optimization ---\n")
     with torch.no_grad():
-        for test_game in range(1, 2):  # 15 games
+        for test_game in range(1, 1):  # 15 games
             print(f"Test Game {test_game}")
             result, strong_bnn, bnn_history, ground_truth_label_list, ethical_ground_truths, gen_loss_history, gen_ethical_history, rounds_survived, global_counter = main_loop(max_tokens, temperature, top_p, danger, shared_history, bnn_history, ground_truth_label_list, ethical_ground_truths, gen_loss_history, gen_ethical_history, strong_bnn, config, global_counter, train=False)# Append results for analysis
             rounds_survived_history[f"Game {counter}"] = rounds_survived
