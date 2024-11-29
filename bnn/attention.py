@@ -73,21 +73,26 @@ def compute_attention(
     # Compute storyteller context
     storyteller_context = torch.matmul(storyteller_attention_weights, values_storyteller)
 
-    ### Step 2: Adjust response attention scores
-    expanded_storyteller_weights = torch.zeros(attention_scores.size(), device=device)
-    expanded_storyteller_weights[:, storyteller_mask] = storyteller_attention_weights
+    ### Step 2: Map storyteller indices to response indices
+    # Map storyteller indices to their positions in the original sequence
+    storyteller_indices_in_keys = torch.nonzero(storyteller_mask, as_tuple=True)[0]
+    relevant_response_positions = storyteller_indices_in_keys + 1  # Assuming responses follow storyteller prompts
 
-    response_attention_scores = attention_scores - expanded_storyteller_weights
-    response_attention_scores = response_attention_scores.masked_fill(storyteller_mask.unsqueeze(0), -1e9)
+    # Ensure response positions are within bounds
+    valid_indices = relevant_response_positions < keys.size(0)
+    relevant_response_positions = relevant_response_positions[valid_indices]
 
-    # Apply softmax to response attention scores
-    response_attention_weights = F.softmax(response_attention_scores, dim=-1)
+    ### Step 3: Assign relevance scores to responses
+    response_relevance_scores = torch.full_like(attention_scores, fill_value=-1e9)  # Shape: [1, sequence_length]
+    response_relevance_scores[0, relevant_response_positions] = storyteller_attention_weights[0, :len(relevant_response_positions)]
+
+    ### Step 4: Compute response context
+    response_attention_weights = F.softmax(response_relevance_scores, dim=-1)      # Shape: [1, sequence_length]
     response_attention_weights = dropout(response_attention_weights)
 
-    # Compute response context
     response_context = torch.matmul(response_attention_weights, values)
 
-    ### Step 3: Combine contexts and scale storyteller context
+    ### Step 5: Combine contexts and scale storyteller context
     combined_context = (storyteller_context * scaling_factor) + response_context
     return combined_context
 

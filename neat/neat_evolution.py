@@ -2,59 +2,36 @@ import os
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:False"
 import random
 
+import torch
 import traceback
 
-global rank, local_rank
 
-try:
-    from mpi4py import MPI
-    comm = MPI.COMM_WORLD
-    rank = comm.Get_rank()
-    size = comm.Get_size()
+from mpi4py import MPI
+comm = MPI.COMM_WORLD
+rank = comm.Get_rank()
+size = comm.Get_size()
 
-    local_comm = comm.Split_type(MPI.COMM_TYPE_SHARED)
-    local_rank = local_comm.Get_rank()
+local_comm = comm.Split_type(MPI.COMM_TYPE_SHARED)
+local_rank = local_comm.Get_rank()
 
-    num_gpus_per_node = 3  # Adjust to your system
-    gpu_id = local_rank % num_gpus_per_node
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-    print(f"MPI Initialized. GPU ID: {gpu_id}")
-except ImportError:
-    # Dummy MPI setup
-    class DummyComm:
-        def bcast(self, data, root):
-            return data  # No-op broadcast for single-process
+num_gpus_per_node = 3  # Adjust to your system
+gpu_id = local_rank % num_gpus_per_node
+os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+print(f"MPI Initialized. GPU ID: {gpu_id}")
 
-        def gather(self, data, root):
-            # In a single-process setup, just return a list containing the data
-            return [data]
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+comm.Barrier()  # Waits for all ranks to reach this point
 
-        def Get_rank(self):
-            return 0  # Simulate rank 0
+print(f"Rank {rank}, Local Rank {local_rank}, Assigned GPU: {gpu_id}, Device: {device}")
 
-        def Get_size(self):
-            return 1  # Simulate a single process
-
-    comm = DummyComm()
-    rank = 0
-    size = 1
-    local_rank = 0
-    num_gpus_per_node = 1
-    gpu_id = local_rank % num_gpus_per_node
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-    print(f"MPI not available. Simulated GPU ID: {gpu_id}")
-
-# Initialize Ray at the beginning of your script
 import numpy as np
 from math import ceil
 
-import torch
 print("Number of GPUs available:", torch.cuda.device_count())
 import torch.nn as nn
 
 import time
 import random
-import pytest
 import sys
 from neat.neat_utils import save_evolution_results
 from bnn.bayesnn import BayesianNN
@@ -71,7 +48,14 @@ from bnn_neat.species import DefaultSpeciesSet
 from bnn_neat.stagnation import DefaultStagnation
 from bnn_neat.genes import DefaultConnectionGene, DefaultNodeGene
 from bnn_neat.reporting import ReporterSet, StdOutReporter, BaseReporter
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print("Past imports in neat evolution")
+
+
+# Redirect logs to files
+log_file = f"log_rank_{rank}.txt"
+with open(log_file, "w") as f:
+    sys.stdout = f
+    sys.stderr = f
 
 class BayesianGenome(DefaultGenome):
     # Extend DefaultGenome to handle weight_mu and weight_sigma
@@ -150,7 +134,7 @@ def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_label_list, a
         genome.fitness = -float('inf')
         print("No storyteller entries found. Assigning minimum fitness.")
         return genome.fitness
-    
+
     evaluation_window = genome.evaluation_window
 
     # Randomly select a subset of storyteller entries if there are enough entries
@@ -222,10 +206,7 @@ def evaluate_genome(genome, config, bnn, bnn_history, ground_truth_label_list, a
 
     return fitness
 
-def evaluate_genome_remote(genome_id, genome, config, bnn_history, ground_truth_labels, attention_layers, ethical_ground_truths):
-    global rank, local_rank  # Access global variables
-
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+def evaluate_genome_remote(genome_id, genome, config, bnn_history, ground_truth_labels, attention_layers, ethical_ground_truths, rank, local_rank, device):
     print(f"Genome {genome_id} - Rank {rank}, Local Rank {local_rank}, using device {device}")
 
     if torch.cuda.is_available():
@@ -270,15 +251,6 @@ def evaluate_genome_remote(genome_id, genome, config, bnn_history, ground_truth_
 
         end_time = time.time()
         elapsed_time = end_time - start_time
-        comm = None
-        rank = 0  # Simulate being the first process
-        size = 1  # Simulate a single process
-
-        # Simulate a single GPU setup
-        local_rank = 0
-        num_gpus_per_node = 1  # Set to the number of GPUs you want to simulate
-        gpu_id = local_rank % num_gpus_per_node
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
         print(f"Genome {genome_id} - Evaluation Time: {elapsed_time:.2f} seconds")
 
     except Exception as e:
@@ -286,9 +258,11 @@ def evaluate_genome_remote(genome_id, genome, config, bnn_history, ground_truth_
         traceback.print_exc()
         fitness = float('-inf')
 
-    # Clean up
     del bnn
+    for tensor in bnn_history_device:
+        del tensor
     torch.cuda.empty_cache()
+
 
     return genome_id, fitness
 
@@ -442,7 +416,7 @@ class NeatEvolution:
         return genome
 
     def run_neat_step(self, strong_bnn, bnn_history, ground_truth_labels, ethical_ground_truths):
-        self.max_generations = 1
+        self.max_generations = 7
         winner = self.population.run(
             lambda genomes, _, k: self.fitness_function(genomes, self.config, k, bnn_history, ground_truth_labels, ethical_ground_truths),
             n=self.max_generations,
@@ -476,15 +450,18 @@ class NeatEvolution:
         genomes = list(genomes)
         genome_dict = dict(genomes)
 
-        # Distribute genomes among processes
-        num_genomes = len(genomes)
-        genomes_per_process = num_genomes // size
-        remainder = num_genomes % size
+         # Scatter genomes dynamically among ranks
+        genome_lengths = [len(genomes) // size] * size
+        for i in range(len(genomes) % size):
+            genome_lengths[i] += 1
 
-        start_index = rank * genomes_per_process + min(rank, remainder)
-        end_index = start_index + genomes_per_process + (1 if rank < remainder else 0)
+        displacements = [sum(genome_lengths[:i]) for i in range(size)]
+        local_genomes = comm.scatterv(
+            [genomes[start:end] for start, end in zip(displacements, displacements[1:] + [None])], root=0
+        )
 
-        local_genomes = genomes[start_index:end_index]
+        # Barrier to synchronize before evaluations
+        comm.Barrier()
 
         # Evaluate local genomes
         local_results = []
@@ -511,11 +488,17 @@ class NeatEvolution:
                 else:
                     genome.evaluation_window = 5
 
-            genome_id, fitness = evaluate_genome_remote(genome_id, genome, config, bnn_history, ground_truth_labels, attention_layers, ethical_ground_truths)
+            genome_id, fitness = evaluate_genome_remote(genome_id, genome, config, bnn_history, ground_truth_labels, attention_layers, ethical_ground_truths, rank, local_rank, device)
             local_results.append((genome_id, fitness))
+
+        # Barrier to synchronize before evaluations
+        comm.Barrier()
 
         # Gather results at root process
         all_results = comm.gather(local_results, root=0)
+
+        # Final synchronization before exit
+        comm.Barrier()
 
         if rank == 0:
             # Combine results from all processes
@@ -601,4 +584,5 @@ class NeatEvolution:
             continue_evolution = comm.bcast(continue_evolution, root=0)
 
         return continue_evolution
+
 
